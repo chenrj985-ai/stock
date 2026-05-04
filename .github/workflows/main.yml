@@ -20,7 +20,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run stock script
-        run: python stock_entry_watch_mainline_v21.py
+        run: python stockchoice.py
 
       - name: Upload results
         uses: actions/upload-artifact@v4
