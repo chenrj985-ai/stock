@@ -24,7 +24,7 @@ jobs:
 
       - name: 运行股票监控
         run: |
-          python stock_monitor_github.py
+          python stockchoice.py
 
       - name: 上传结果
         uses: actions/upload-artifact@v4
