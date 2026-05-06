@@ -1,29 +1,35 @@
-name: stock
+name: Stock Monitor
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "50 6 * * 1-5"   # 北京时间14:50，周一到周五
 
 jobs:
-  run-stock-watch:
+  run-stock-monitor:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: 拉取仓库代码
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: 设置 Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: 安装依赖
+        run: |
+          pip install -r requirements.txt
 
-      - name: Run stock script
-        run: python stockchoice.py
+      - name: 运行股票监控
+        run: |
+          python stock_monitor_github.py
 
-      - name: Upload results
+      - name: 上传结果
         uses: actions/upload-artifact@v4
         with:
-          name: stock-results
-          path: results/
+          name: stock-result
+          path: |
+            tdx_tail_buy_signal.csv
+            tdx_tail_buy_signal.xlsx
