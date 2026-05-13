@@ -31,5 +31,4 @@ jobs:
         with:
           name: stock-result
           path: |
-            tdx_tail_buy_signal.csv
-            tdx_tail_buy_signal.xlsx
+            tdx_watchlist_result.csv
