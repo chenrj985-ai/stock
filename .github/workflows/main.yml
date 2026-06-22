@@ -1,4 +1,4 @@
-name: stock-watch-tdx
+name: stock-watch
 
 on:
   workflow_dispatch:
@@ -6,6 +6,8 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
 
     steps:
       - name: Checkout
@@ -21,15 +23,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y fonts-noto-cjk
 
-      - name: Install Python packages
+      - name: Install packages
         run: |
           pip install -r requirements.txt
 
-      - name: Run stock watch
+      - name: Run stock script
         run: |
           python stockchoice.py
 
-      - name: Upload results
+      - name: Upload result
         uses: actions/upload-artifact@v4
         with:
           name: stock_output
