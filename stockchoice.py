@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import time
+
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 from pytdx.hq import TdxHq_API
+import akshare as ak
 
 TDX_SERVERS = [
     ("119.147.212.81", 7709),
@@ -67,8 +70,8 @@ def get_float(x, default=0.0):
 def fetch_once(api):
     query_list = [code7_to_tdx(x) for x in WATCH_CODES_7]
     quotes = api.get_security_quotes(query_list)
-    rows = {}
 
+    rows = {}
     for q in quotes:
         code = str(q.get("code", "")).zfill(6)
         last_close = get_float(q.get("last_close"))
@@ -94,24 +97,34 @@ def fetch_once(api):
     return rows
 
 
+def fetch_em_extra():
+    try:
+        em = ak.stock_zh_a_spot_em()
+        em["代码"] = em["代码"].astype(str).str.zfill(6)
+        extra = em[["代码", "换手率", "量比", "市盈率-动态"]].copy()
+        extra = extra.rename(columns={
+            "换手率": "换手%",
+            "市盈率-动态": "市盈(动)"
+        })
+        return extra
+    except Exception as e:
+        print("东方财富补充数据失败：", e)
+        return pd.DataFrame(columns=["代码", "换手%", "量比", "市盈(动)"])
+
+
 def fetch_quotes(api):
-    # 取两次，间隔3秒，估算涨速
     q1 = fetch_once(api)
     time.sleep(3)
     q2 = fetch_once(api)
 
     rows = []
     for code, r in q2.items():
-        old = q1.get(code, {})
-        old_price = get_float(old.get("现价"))
+        old_price = get_float(q1.get(code, {}).get("现价"))
         now_price = get_float(r.get("现价"))
         last_close = get_float(r.get("昨收"))
 
-        speed = 0
-        if old_price and last_close:
-            speed = (now_price - old_price) / last_close * 100
+        speed = (now_price - old_price) / last_close * 100 if old_price and last_close else 0
 
-        # pytdx原始接口没有稳定的换手率/动态市盈率字段，这里先留空，避免乱算误导
         rows.append({
             "代码": r["代码"],
             "名称": r["名称"],
@@ -134,12 +147,21 @@ def fetch_quotes(api):
         })
 
     df = pd.DataFrame(rows)
+
+    extra = fetch_em_extra()
+    if not extra.empty:
+        df = df.merge(extra, on="代码", how="left", suffixes=("", "_em"))
+        for col in ["换手%", "量比", "市盈(动)"]:
+            if col + "_em" in df.columns:
+                df[col] = df[col + "_em"]
+                df.drop(columns=[col + "_em"], inplace=True)
+
     df = df.sort_values("涨幅%", ascending=False)
     return df
 
 
 def save_outputs(df, server_ip):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M:%S")
 
     csv_path = OUT_DIR / "stock_watch.csv"
     txt_path = OUT_DIR / "stock_watch.txt"
@@ -148,16 +170,23 @@ def save_outputs(df, server_ip):
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
     with open(txt_path, "w", encoding="utf-8") as f:
-        f.write(f"30只核心股实时行情\n生成时间：{now}\n数据源：TDX {server_ip}\n")
-        f.write("=" * 120 + "\n")
+        f.write(f"30只核心股实时行情\n")
+        f.write(f"生成时间：{now} 北京时间\n")
+        f.write(f"数据源：TDX {server_ip} + 东方财富补充\n")
+        f.write("=" * 140 + "\n")
         f.write(df.to_string(index=False))
 
     font_path = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
     font_prop = FontProperties(fname=font_path)
 
-    fig, ax = plt.subplots(figsize=(22, 12))
+    fig, ax = plt.subplots(figsize=(24, 12))
     ax.axis("off")
-    ax.set_title(f"30只核心股实时行情  {now}", fontproperties=font_prop, fontsize=18, pad=15)
+    ax.set_title(
+        f"30只核心股实时行情  {now} 北京时间",
+        fontproperties=font_prop,
+        fontsize=18,
+        pad=15
+    )
 
     table = ax.table(
         cellText=df.values,
@@ -167,7 +196,7 @@ def save_outputs(df, server_ip):
     )
 
     table.auto_set_font_size(False)
-    table.set_fontsize(8.5)
+    table.set_fontsize(8.2)
     table.scale(1, 1.35)
 
     for (row, col), cell in table.get_celld().items():
@@ -192,7 +221,10 @@ def main():
         df = fetch_quotes(api)
         save_outputs(df, server_ip)
     finally:
-        api.disconnect()
+        try:
+            api.disconnect()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
