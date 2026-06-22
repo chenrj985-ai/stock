@@ -36,8 +36,8 @@ NAME_MAP = {
     "000977":"浪潮信息","688047":"龙芯中科","688256":"寒武纪","300496":"中科创达","002049":"紫光国微",
 }
 
-# 可选：如果你以后想算准确换手率，可在这里填流通股本，单位：股
 FLOAT_SHARES = {
+    # 如需计算换手率，在这里手工填“流通股本”，单位：股
     # "600584": 1780000000,
 }
 
@@ -60,11 +60,9 @@ def get_float(x, default=0.0):
 def trading_minutes_now():
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
     h, m = now.hour, now.minute
-    total = 0
 
     if h < 9 or (h == 9 and m < 30):
         return 1
-
     if h < 11 or (h == 11 and m <= 30):
         total = (h - 9) * 60 + m - 30
     elif h < 13:
@@ -96,9 +94,11 @@ def get_avg_5day_volume(api, market, code):
         bars = api.get_security_bars(9, market, code, 0, 6)
         if not bars or len(bars) < 6:
             return 0
+
         prev5 = bars[-6:-1]
         vols = [get_float(x.get("vol")) for x in prev5]
         vols = [v for v in vols if v > 0]
+
         return sum(vols) / len(vols) if vols else 0
     except Exception:
         return 0
@@ -123,7 +123,7 @@ def fetch_once(api):
             "涨跌": price - last_close if last_close else 0,
             "买价": get_float(q.get("bid1")),
             "卖价": get_float(q.get("ask1")),
-            "总量": get_float(q.get("vol")),
+            "总量": get_float(q.get("vol")),      # 通达信实时总量，近似股数
             "现量": get_float(q.get("cur_vol")),
             "今开": get_float(q.get("open")),
             "最高": get_float(q.get("high")),
@@ -151,14 +151,19 @@ def fetch_quotes(api):
         old_price = get_float(q1.get(code, {}).get("现价"))
         now_price = get_float(r.get("现价"))
         last_close = get_float(r.get("昨收"))
+
         speed = (now_price - old_price) / last_close * 100 if old_price and last_close else 0
 
-        avg5_vol = get_avg_5day_volume(api, market, code)
-        expected_now_vol = avg5_vol * minutes / 240 if avg5_vol else 0
-        volume_ratio = r["总量"] / expected_now_vol if expected_now_vol else ""
+        # 修正：实时总量转为“手”
+        current_vol_hand = r["总量"] / 100
+
+        # 日K vol 通常为“手”，所以用“手”计算量比
+        avg5_vol_hand = get_avg_5day_volume(api, market, code)
+        expected_now_vol = avg5_vol_hand * minutes / 240 if avg5_vol_hand else 0
+        volume_ratio = current_vol_hand / expected_now_vol if expected_now_vol else ""
 
         float_share = FLOAT_SHARES.get(code)
-        turnover = (r["总量"] * 100 / float_share * 100) if float_share else ""
+        turnover = (r["总量"] / float_share * 100) if float_share else ""
 
         rows.append({
             "代码": code,
@@ -168,7 +173,7 @@ def fetch_quotes(api):
             "涨跌": round(r["涨跌"], 2),
             "买价": round(r["买价"], 2),
             "卖价": round(r["卖价"], 2),
-            "总量(万手)": round(r["总量"] / 10000, 2),
+            "总量(万手)": round(current_vol_hand / 10000, 2),
             "现量": int(r["现量"]),
             "涨速%": round(speed, 2),
             "换手%": round(turnover, 2) if turnover != "" else "",
@@ -176,7 +181,6 @@ def fetch_quotes(api):
             "最高": round(r["最高"], 2),
             "最低": round(r["最低"], 2),
             "昨收": round(r["昨收"], 2),
-            "市盈(动)": "",
             "总金额(亿)": round(r["总金额"] / 1e8, 2),
             "量比估算": round(volume_ratio, 2) if volume_ratio != "" else "",
         })
@@ -194,9 +198,11 @@ def get_chinese_font():
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
     ]
+
     for p in candidates:
         if Path(p).exists():
             return FontProperties(fname=p)
+
     return None
 
 
@@ -213,13 +219,13 @@ def save_outputs(df, server_ip):
         f.write("30只核心股实时行情\n")
         f.write(f"生成时间：{now} 北京时间\n")
         f.write(f"数据源：TDX {server_ip}\n")
-        f.write("说明：量比为根据近5日均量和当前交易分钟估算；换手率需手工填流通股本后计算。\n")
+        f.write("说明：量比为估算值；换手率需手工填写流通股本后计算。\n")
         f.write("=" * 150 + "\n")
         f.write(df.to_string(index=False))
 
     font_prop = get_chinese_font()
 
-    fig, ax = plt.subplots(figsize=(26, 12))
+    fig, ax = plt.subplots(figsize=(24, 12))
     ax.axis("off")
 
     title = f"30只核心股实时行情  {now} 北京时间"
@@ -236,7 +242,7 @@ def save_outputs(df, server_ip):
     )
 
     table.auto_set_font_size(False)
-    table.set_fontsize(8.0)
+    table.set_fontsize(8.2)
     table.scale(1, 1.35)
 
     for (row, col), cell in table.get_celld().items():
