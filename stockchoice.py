@@ -8,7 +8,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 from pytdx.hq import TdxHq_API
-import requests
 
 TDX_SERVERS = [
     ("119.147.212.81", 7709),
@@ -37,6 +36,11 @@ NAME_MAP = {
     "000977":"浪潮信息","688047":"龙芯中科","688256":"寒武纪","300496":"中科创达","002049":"紫光国微",
 }
 
+# 可选：如果你以后想算准确换手率，可在这里填流通股本，单位：股
+FLOAT_SHARES = {
+    # "600584": 1780000000,
+}
+
 OUT_DIR = Path("stock_output")
 OUT_DIR.mkdir(exist_ok=True)
 
@@ -44,6 +48,33 @@ OUT_DIR.mkdir(exist_ok=True)
 def code7_to_tdx(code7):
     code7 = str(code7).zfill(7)
     return int(code7[0]), code7[1:]
+
+
+def get_float(x, default=0.0):
+    try:
+        return float(x)
+    except Exception:
+        return default
+
+
+def trading_minutes_now():
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    h, m = now.hour, now.minute
+    total = 0
+
+    if h < 9 or (h == 9 and m < 30):
+        return 1
+
+    if h < 11 or (h == 11 and m <= 30):
+        total = (h - 9) * 60 + m - 30
+    elif h < 13:
+        total = 120
+    elif h < 15:
+        total = 120 + (h - 13) * 60 + m
+    else:
+        total = 240
+
+    return max(1, min(total, 240))
 
 
 def connect_best_server():
@@ -60,11 +91,17 @@ def connect_best_server():
     raise RuntimeError("所有通达信服务器连接失败")
 
 
-def get_float(x, default=0.0):
+def get_avg_5day_volume(api, market, code):
     try:
-        return float(x)
+        bars = api.get_security_bars(9, market, code, 0, 6)
+        if not bars or len(bars) < 6:
+            return 0
+        prev5 = bars[-6:-1]
+        vols = [get_float(x.get("vol")) for x in prev5]
+        vols = [v for v in vols if v > 0]
+        return sum(vols) / len(vols) if vols else 0
     except Exception:
-        return default
+        return 0
 
 
 def fetch_once(api):
@@ -96,107 +133,71 @@ def fetch_once(api):
         }
     return rows
 
-def fetch_em_extra():
-    """
-    东方财富原始接口补充：
-    换手率 f168
-    量比 f10
-    市盈率动态 f162
-    """
-    try:
-        url = "https://push2.eastmoney.com/api/qt/clist/get"
-        params = {
-            "pn": "1",
-            "pz": "6000",
-            "po": "1",
-            "np": "1",
-            "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-            "fltt": "2",
-            "invt": "2",
-            "fid": "f3",
-            "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
-            "fields": "f12,f10,f168,f162",
-        }
-
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
-
-        r = requests.get(url, params=params, headers=headers, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-
-        rows = data.get("data", {}).get("diff", [])
-        result = []
-
-        for item in rows:
-            code = str(item.get("f12", "")).zfill(6)
-
-            def clean(v):
-                if v in ("-", None):
-                    return ""
-                return v
-
-            result.append({
-                "代码": code,
-                "量比": clean(item.get("f10")),
-                "换手%": clean(item.get("f168")),
-                "市盈(动)": clean(item.get("f162")),
-            })
-
-        return pd.DataFrame(result)
-
-    except Exception as e:
-        print("东方财富补充数据失败：", e)
-        return pd.DataFrame(columns=["代码", "换手%", "量比", "市盈(动)"])
-
 
 def fetch_quotes(api):
     q1 = fetch_once(api)
     time.sleep(3)
     q2 = fetch_once(api)
 
+    minutes = trading_minutes_now()
     rows = []
-    for code, r in q2.items():
+
+    for code7 in WATCH_CODES_7:
+        market, code = code7_to_tdx(code7)
+        r = q2.get(code)
+        if not r:
+            continue
+
         old_price = get_float(q1.get(code, {}).get("现价"))
         now_price = get_float(r.get("现价"))
         last_close = get_float(r.get("昨收"))
-
         speed = (now_price - old_price) / last_close * 100 if old_price and last_close else 0
 
+        avg5_vol = get_avg_5day_volume(api, market, code)
+        expected_now_vol = avg5_vol * minutes / 240 if avg5_vol else 0
+        volume_ratio = r["总量"] / expected_now_vol if expected_now_vol else ""
+
+        float_share = FLOAT_SHARES.get(code)
+        turnover = (r["总量"] * 100 / float_share * 100) if float_share else ""
+
         rows.append({
-            "代码": r["代码"],
+            "代码": code,
             "名称": r["名称"],
             "涨幅%": round(r["涨幅%"], 2),
             "现价": round(r["现价"], 2),
             "涨跌": round(r["涨跌"], 2),
             "买价": round(r["买价"], 2),
             "卖价": round(r["卖价"], 2),
-            "总量": round(r["总量"] / 10000, 2),
+            "总量(万手)": round(r["总量"] / 10000, 2),
             "现量": int(r["现量"]),
             "涨速%": round(speed, 2),
-            "换手%": "",
+            "换手%": round(turnover, 2) if turnover != "" else "",
             "今开": round(r["今开"], 2),
             "最高": round(r["最高"], 2),
             "最低": round(r["最低"], 2),
             "昨收": round(r["昨收"], 2),
             "市盈(动)": "",
-            "总金额": round(r["总金额"] / 1e8, 2),
-            "量比": "",
+            "总金额(亿)": round(r["总金额"] / 1e8, 2),
+            "量比估算": round(volume_ratio, 2) if volume_ratio != "" else "",
         })
 
     df = pd.DataFrame(rows)
-
-    extra = fetch_em_extra()
-    if not extra.empty:
-        df = df.merge(extra, on="代码", how="left", suffixes=("", "_em"))
-        for col in ["换手%", "量比", "市盈(动)"]:
-            if col + "_em" in df.columns:
-                df[col] = df[col + "_em"]
-                df.drop(columns=[col + "_em"], inplace=True)
-
     df = df.sort_values("涨幅%", ascending=False)
     return df
+
+
+def get_chinese_font():
+    candidates = [
+        r"C:\Windows\Fonts\msyh.ttc",
+        r"C:\Windows\Fonts\simhei.ttf",
+        r"C:\Windows\Fonts\simsun.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    ]
+    for p in candidates:
+        if Path(p).exists():
+            return FontProperties(fname=p)
+    return None
 
 
 def save_outputs(df, server_ip):
@@ -209,23 +210,23 @@ def save_outputs(df, server_ip):
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
     with open(txt_path, "w", encoding="utf-8") as f:
-        f.write(f"30只核心股实时行情\n")
+        f.write("30只核心股实时行情\n")
         f.write(f"生成时间：{now} 北京时间\n")
-        f.write(f"数据源：TDX {server_ip} + 东方财富补充\n")
-        f.write("=" * 140 + "\n")
+        f.write(f"数据源：TDX {server_ip}\n")
+        f.write("说明：量比为根据近5日均量和当前交易分钟估算；换手率需手工填流通股本后计算。\n")
+        f.write("=" * 150 + "\n")
         f.write(df.to_string(index=False))
 
-    font_path = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
-    font_prop = FontProperties(fname=font_path)
+    font_prop = get_chinese_font()
 
-    fig, ax = plt.subplots(figsize=(24, 12))
+    fig, ax = plt.subplots(figsize=(26, 12))
     ax.axis("off")
-    ax.set_title(
-        f"30只核心股实时行情  {now} 北京时间",
-        fontproperties=font_prop,
-        fontsize=18,
-        pad=15
-    )
+
+    title = f"30只核心股实时行情  {now} 北京时间"
+    if font_prop:
+        ax.set_title(title, fontproperties=font_prop, fontsize=18, pad=15)
+    else:
+        ax.set_title(title, fontsize=18, pad=15)
 
     table = ax.table(
         cellText=df.values,
@@ -235,11 +236,12 @@ def save_outputs(df, server_ip):
     )
 
     table.auto_set_font_size(False)
-    table.set_fontsize(8.2)
+    table.set_fontsize(8.0)
     table.scale(1, 1.35)
 
     for (row, col), cell in table.get_celld().items():
-        cell.get_text().set_fontproperties(font_prop)
+        if font_prop:
+            cell.get_text().set_fontproperties(font_prop)
         if row == 0:
             cell.set_text_props(weight="bold")
             cell.set_height(0.045)
