@@ -1,34 +1,36 @@
-name: Stock Monitor
+name: stock-watch-tdx
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "50 6 * * 1-5"   # 北京时间14:50，周一到周五
 
 jobs:
-  run-stock-monitor:
+  run:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 拉取仓库代码
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 设置 Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.10"
 
-      - name: 安装依赖
+      - name: Install Chinese fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+
+      - name: Install Python packages
         run: |
           pip install -r requirements.txt
 
-      - name: 运行股票监控
+      - name: Run stock watch
         run: |
-          python stockchoice.py
+          python stock_watch_tdx.py
 
-      - name: 上传结果
+      - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: stock-result
-          path: |
-            tdx_watchlist_result.csv
+          name: stock_output
+          path: stock_output/
