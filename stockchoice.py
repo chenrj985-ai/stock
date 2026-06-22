@@ -8,7 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 from pytdx.hq import TdxHq_API
-import akshare as ak
+import requests
 
 TDX_SERVERS = [
     ("119.147.212.81", 7709),
@@ -96,17 +96,56 @@ def fetch_once(api):
         }
     return rows
 
-
 def fetch_em_extra():
+    """
+    东方财富原始接口补充：
+    换手率 f168
+    量比 f10
+    市盈率动态 f162
+    """
     try:
-        em = ak.stock_zh_a_spot_em()
-        em["代码"] = em["代码"].astype(str).str.zfill(6)
-        extra = em[["代码", "换手率", "量比", "市盈率-动态"]].copy()
-        extra = extra.rename(columns={
-            "换手率": "换手%",
-            "市盈率-动态": "市盈(动)"
-        })
-        return extra
+        url = "https://push2.eastmoney.com/api/qt/clist/get"
+        params = {
+            "pn": "1",
+            "pz": "6000",
+            "po": "1",
+            "np": "1",
+            "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+            "fltt": "2",
+            "invt": "2",
+            "fid": "f3",
+            "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
+            "fields": "f12,f10,f168,f162",
+        }
+
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+
+        rows = data.get("data", {}).get("diff", [])
+        result = []
+
+        for item in rows:
+            code = str(item.get("f12", "")).zfill(6)
+
+            def clean(v):
+                if v in ("-", None):
+                    return ""
+                return v
+
+            result.append({
+                "代码": code,
+                "量比": clean(item.get("f10")),
+                "换手%": clean(item.get("f168")),
+                "市盈(动)": clean(item.get("f162")),
+            })
+
+        return pd.DataFrame(result)
+
     except Exception as e:
         print("东方财富补充数据失败：", e)
         return pd.DataFrame(columns=["代码", "换手%", "量比", "市盈(动)"])
