@@ -1,1 +1,48 @@
+name: auto-stock-watch
 
+on:
+  schedule:
+    - cron: '18 3 * * 1-5'   # 北京时间 11:18
+    - cron: '40 5 * * 1-5'   # 北京时间 13:40
+    - cron: '20 6 * * 1-5'   # 北京时间 14:20
+    - cron: '40 6 * * 1-5'   # 北京时间 14:40
+    - cron: '50 6 * * 1-5'   # 北京时间 14:50
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - run: pip install -r requirements.txt
+
+      - run: python stockchoice.py
+
+      - run: |
+          mkdir -p latest
+          cp stock_output/stock_watch.svg latest/latest.svg
+          cp stock_output/stock_watch.html latest/latest.html
+          cp stock_output/stock_watch.txt latest/latest.txt
+          cp stock_output/stock_watch.csv latest/latest.csv
+
+      - run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add latest/latest.svg latest/latest.html latest/latest.txt latest/latest.csv
+          git commit -m "auto update latest stock watch" || echo "No changes to commit"
+          git push
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stock_output
+          path: stock_output/
