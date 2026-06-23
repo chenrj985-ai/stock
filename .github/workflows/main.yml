@@ -36,3 +36,17 @@ jobs:
         with:
           name: stock_output
           path: stock_output/
+            - name: Build web page
+        run: |
+          mkdir -p docs
+          cp stock_output/stock_watch.html docs/index.html
+
+      - name: Commit docs
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add docs/index.html
+          git commit -m "update web page" || echo "No changes"
+
+          git push
