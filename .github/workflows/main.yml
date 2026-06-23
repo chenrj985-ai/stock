@@ -36,7 +36,8 @@ jobs:
         with:
           name: stock_output
           path: stock_output/
-            - name: Build web page
+      
+      - name: Build web page
         run: |
           mkdir -p docs
           cp stock_output/stock_watch.html docs/index.html
