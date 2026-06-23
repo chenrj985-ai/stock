@@ -2,3 +2,4 @@ pytdx==1.72
 pandas
 matplotlib
 requests
+akshare
