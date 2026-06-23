@@ -1,6 +1,8 @@
 name: auto-stock-watch
 
 'on':
+  workflow_dispatch:
+
   schedule:
     - cron: '18 3 * * 1-5'
     - cron: '40 5 * * 1-5'
