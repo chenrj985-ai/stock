@@ -1,19 +1,21 @@
 name: Stock Watch
 
 on:
-  # 手动运行
   workflow_dispatch:
 
-  # 自动运行（UTC时间）
   schedule:
-    - cron: '18 3 * * 1-5'   # 北京11:18
-    - cron: '40 5 * * 1-5'   # 北京13:40
-    - cron: '20 6 * * 1-5'   # 北京14:20
-    - cron: '40 6 * * 1-5'   # 北京14:40
-    - cron: '50 6 * * 1-5'   # 北京14:50
+    - cron: '18 3 * * 1-5'
+    - cron: '40 5 * * 1-5'
+    - cron: '20 6 * * 1-5'
+    - cron: '40 6 * * 1-5'
+    - cron: '50 6 * * 1-5'
 
 permissions:
   contents: write
+
+concurrency:
+  group: stock-watch
+  cancel-in-progress: true
 
 jobs:
   run:
