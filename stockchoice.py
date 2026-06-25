@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 import csv
 import html
+import json
 import requests
 
 OUT_DIR = Path("stock_output")
@@ -12,11 +13,7 @@ OUT_DIR.mkdir(exist_ok=True)
 DOCS_DIR = Path("docs")
 DOCS_DIR.mkdir(exist_ok=True)
 
-# =========================
-# 50只短线吃肉股票池
-# =========================
 STOCK_POOL = [
-    # 第一梯队：半导体设备/制造
     ("688012", "中微公司", "半导体设备"),
     ("002371", "北方华创", "半导体设备"),
     ("688120", "华海清科", "半导体设备"),
@@ -28,7 +25,6 @@ STOCK_POOL = [
     ("688256", "寒武纪", "国产算力"),
     ("688047", "龙芯中科", "国产算力"),
 
-    # PCB / AI硬件
     ("002463", "沪电股份", "AI PCB"),
     ("600183", "生益科技", "AI PCB"),
     ("002916", "深南电路", "AI PCB"),
@@ -40,14 +36,12 @@ STOCK_POOL = [
     ("601138", "工业富联", "AI服务器"),
     ("000977", "浪潮信息", "AI服务器"),
 
-    # 光模块
     ("300308", "中际旭创", "光模块"),
     ("300502", "新易盛", "光模块"),
     ("300394", "天孚通信", "光模块"),
     ("002281", "光迅科技", "光模块"),
     ("300442", "润泽科技", "算力中心"),
 
-    # 存储/芯片设计
     ("001309", "德明利", "存储"),
     ("603986", "兆易创新", "存储"),
     ("603893", "瑞芯微", "芯片设计"),
@@ -56,7 +50,6 @@ STOCK_POOL = [
     ("688052", "纳芯微", "模拟芯片"),
     ("002049", "紫光国微", "特种芯片"),
 
-    # 半导体材料/零部件
     ("688300", "联瑞新材", "半导体材料"),
     ("688126", "沪硅产业", "半导体材料"),
     ("300666", "江丰电子", "半导体材料"),
@@ -64,7 +57,6 @@ STOCK_POOL = [
     ("300373", "扬杰科技", "功率半导体"),
     ("603290", "斯达半导", "功率半导体"),
 
-    # 弹性设备/检测
     ("688627", "精智达", "检测设备"),
     ("688668", "鼎通科技", "连接器"),
     ("688141", "杰华特", "电源芯片"),
@@ -72,7 +64,6 @@ STOCK_POOL = [
     ("688200", "华峰测控", "检测设备"),
     ("688361", "中科飞测", "检测设备"),
 
-    # 软件/机器人/其它观察
     ("600536", "中国软件", "国产软件"),
     ("688251", "井松智能", "机器人"),
     ("300496", "中科创达", "智能汽车"),
@@ -95,23 +86,21 @@ def fetch_sina_quotes():
     url = f"https://hq.sinajs.cn/list={symbols}"
     headers = {
         "Referer": "https://finance.sina.com.cn",
-        "User-Agent": "Mozilla/5.0"
+        "User-Agent": "Mozilla/5.0",
     }
 
     r = requests.get(url, headers=headers, timeout=12)
     r.encoding = "gbk"
-    text = r.text
 
-    result = []
     stock_map = {code: (name, sector) for code, name, sector in STOCK_POOL}
+    result = []
 
-    for line in text.splitlines():
+    for line in r.text.splitlines():
         if '="' not in line:
             continue
 
         left, right = line.split('="', 1)
-        data = right.strip('";')
-        arr = data.split(",")
+        arr = right.strip('";').split(",")
 
         if len(arr) < 32 or arr[0] == "":
             continue
@@ -133,7 +122,7 @@ def fetch_sina_quotes():
         except Exception:
             continue
 
-        if prev_close <= 0 or price <= 0:
+        if price <= 0 or prev_close <= 0:
             continue
 
         pct = (price - prev_close) / prev_close * 100
@@ -169,7 +158,6 @@ def calc_ai_score(row):
 
     score = 0
 
-    # 涨幅：喜欢强，但不追过热
     if 1 <= pct <= 4:
         score += 34
     elif 4 < pct <= 6:
@@ -185,7 +173,6 @@ def calc_ai_score(row):
     else:
         score -= 10
 
-    # 成交额：短线要有钱
     if amount >= 100:
         score += 28
     elif amount >= 50:
@@ -197,7 +184,6 @@ def calc_ai_score(row):
     else:
         score += 3
 
-    # 日内位置：收得越靠高位越好
     if pos >= 80:
         score += 20
     elif pos >= 65:
@@ -209,7 +195,6 @@ def calc_ai_score(row):
     else:
         score -= 8
 
-    # 主线权重
     if sector in ["半导体设备", "晶圆制造", "国产算力"]:
         score += 18
     elif sector in ["AI PCB", "IC载板", "AI服务器", "存储"]:
@@ -219,8 +204,8 @@ def calc_ai_score(row):
     else:
         score += 3
 
-    # 过热惩罚
     risk = []
+
     if pct >= 8:
         score -= 18
         risk.append("涨幅过大")
@@ -269,15 +254,11 @@ def build_rows():
 
 
 def save_csv(rows):
-    path = OUT_DIR / "stock_watch.csv"
-    cols = list(rows[0].keys())
-
-    with open(path, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=cols)
-        writer.writeheader()
-        writer.writerows(rows)
-
-    return path
+    for path in [OUT_DIR / "stock_watch.csv", DOCS_DIR / "latest.csv"]:
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
 
 
 def save_txt(rows):
@@ -296,7 +277,18 @@ def save_txt(rows):
                 f"建议:{r['AI建议']}\n"
             )
 
-    return path
+
+def save_json(rows):
+    data = {
+        "update_time": now_cn().strftime("%Y-%m-%d %H:%M:%S"),
+        "timezone": "Asia/Shanghai",
+        "stock_count": len(rows),
+        "stocks": rows,
+    }
+
+    for path in [OUT_DIR / "latest.json", DOCS_DIR / "latest.json"]:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def color_pct(v):
@@ -313,9 +305,6 @@ def color_pct(v):
 
 def save_html(rows):
     t = now_cn().strftime("%Y-%m-%d %H:%M:%S")
-    path1 = OUT_DIR / "stock_watch.html"
-    path2 = DOCS_DIR / "index.html"
-    path3 = DOCS_DIR / "manual_latest.html"
 
     cols = [
         "排名", "代码", "名称", "板块", "最新价", "涨跌幅", "涨跌额",
@@ -327,8 +316,8 @@ def save_html(rows):
     for i, r in enumerate(rows, 1):
         rr = dict(r)
         rr["排名"] = i
-
         tds = []
+
         for c in cols:
             val = rr.get(c, "")
             cls = ""
@@ -337,6 +326,7 @@ def save_html(rows):
             if c == "AI优先级" and "★★★★★" in str(val):
                 cls = "strong"
             tds.append(f'<td class="{cls}">{html.escape(str(val))}</td>')
+
         trs.append("<tr>" + "".join(tds) + "</tr>")
 
     html_text = f"""<!doctype html>
@@ -384,10 +374,7 @@ th {{
 tr:hover {{ background: #f1f8ff; }}
 .red {{ color: #d1242f; font-weight: bold; }}
 .green {{ color: #1a7f37; font-weight: bold; }}
-.strong {{
-    color: #cf222e;
-    font-weight: bold;
-}}
+.strong {{ color: #cf222e; font-weight: bold; }}
 .footer {{
     margin-top: 16px;
     color: #666;
@@ -401,7 +388,7 @@ tr:hover {{ background: #f1f8ff; }}
 <div class="time">页面生成时间：{t} 北京时间</div>
 <div class="note">
 本页面按你的短线风格自动排序：安全优先、1～5天吃肉、主线优先、避免追过热。<br>
-AI分越高越值得优先盯；但不等于无脑买，仍需结合当天大盘、板块和仓位。
+JSON数据地址：<strong>latest.json</strong>
 </div>
 <div class="table-wrap">
 <table>
@@ -419,24 +406,26 @@ AI分越高越值得优先盯；但不等于无脑买，仍需结合当天大盘
 </body>
 </html>"""
 
-    for p in [path1, path2, path3]:
-        p.write_text(html_text, encoding="utf-8")
-
-    return path1
+    for path in [
+        OUT_DIR / "stock_watch.html",
+        DOCS_DIR / "index.html",
+        DOCS_DIR / "manual_latest.html",
+    ]:
+        path.write_text(html_text, encoding="utf-8")
 
 
 def main():
     rows = build_rows()
     save_csv(rows)
     save_txt(rows)
+    save_json(rows)
     save_html(rows)
 
-    print("生成完成：")
-    print(OUT_DIR / "stock_watch.html")
-    print(OUT_DIR / "stock_watch.csv")
-    print(OUT_DIR / "stock_watch.txt")
-    print(DOCS_DIR / "index.html")
-    print(DOCS_DIR / "manual_latest.html")
+    print("生成完成")
+    print("docs/index.html")
+    print("docs/manual_latest.html")
+    print("docs/latest.json")
+    print("docs/latest.csv")
 
 
 if __name__ == "__main__":
