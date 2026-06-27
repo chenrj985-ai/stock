@@ -3,12 +3,13 @@
 A股自选股监控网页生成程序
 输出位置：docs/index.html
 
-方案A：
-1. 主接口：腾讯行情接口
-2. 备用接口：新浪行情接口
-3. 不使用 AKShare
-4. 不使用东方财富
+特点：
+1. 不使用 AKShare
+2. 不使用东方财富
+3. 主接口：腾讯行情接口
+4. 备用接口：新浪行情接口
 5. 腾讯接口成功时，页面显示量比、换手率
+6. 输出结构保持不变：docs/index.html
 """
 
 import os
@@ -100,10 +101,10 @@ def safe_float(x, default=0.0) -> float:
     try:
         if x is None:
             return default
-        if isinstance(x, str) and x.strip() == "":
-            return default
-        if isinstance(x, str) and x.strip() in ["--", "-", "None", "nan"]:
-            return default
+        if isinstance(x, str):
+            x = x.strip()
+            if x in ["", "--", "-", "None", "nan", "NaN"]:
+                return default
         return float(x)
     except Exception:
         return default
@@ -113,7 +114,7 @@ def safe_text(x) -> str:
     if x is None:
         return ""
     x = str(x).strip()
-    if x in ["", "None", "nan"]:
+    if x in ["", "None", "nan", "NaN"]:
         return ""
     return x
 
@@ -127,7 +128,12 @@ def format_amount(x) -> str:
     return f"{value:.0f}"
 
 
-def request_text(url: str, headers: Dict[str, str], encoding: str = "gbk", timeout: int = 15) -> str:
+def request_text(
+    url: str,
+    headers: Dict[str, str],
+    encoding: str = "gbk",
+    timeout: int = 15
+) -> str:
     """
     带重试的文本请求。
     """
@@ -163,6 +169,7 @@ def request_text(url: str, headers: Dict[str, str], encoding: str = "gbk", timeo
 def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
     """
     腾讯行情接口，主数据源。
+
     尽量读取：
     最新价、涨跌幅、涨跌额、今开、最高、最低、昨收、成交额、换手率、量比。
     """
@@ -204,24 +211,28 @@ def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
                 continue
 
             # 腾讯常见字段：
-            # 1 名称
-            # 3 当前价
-            # 4 昨收
-            # 5 今开
+            # 1  名称
+            # 3  当前价
+            # 4  昨收
+            # 5  今开
+            # 30 行情时间
             # 31 涨跌额
             # 32 涨跌幅
             # 33 最高
             # 34 最低
-            # 37 成交额，单位通常为万元
+            # 37 成交额，通常单位为万元
             # 38 换手率
-            # 49 量比，部分情况下存在
+            # 49 附近有时为量比，不同时间/标的可能有差异
+
             name = safe_text(fields[1])
             price = safe_float(fields[3])
             pre_close = safe_float(fields[4])
             open_price = safe_float(fields[5])
 
             change = safe_float(fields[31]) if len(fields) > 31 else price - pre_close
-            pct = safe_float(fields[32]) if len(fields) > 32 else (change / pre_close * 100 if pre_close > 0 else 0)
+            pct = safe_float(fields[32]) if len(fields) > 32 else (
+                change / pre_close * 100 if pre_close > 0 else 0
+            )
 
             high = safe_float(fields[33]) if len(fields) > 33 else 0
             low = safe_float(fields[34]) if len(fields) > 34 else 0
@@ -231,23 +242,18 @@ def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
 
             turnover = safe_text(fields[38]) if len(fields) > 38 else ""
 
+            # 尝试提取量比。
+            # 腾讯不同字段版本位置可能略有差异，所以在 48-52 附近兜底。
             volume_ratio = ""
-            # 腾讯接口不同股票/不同时间字段长度可能有差异，量比通常在较后字段。
-            # 优先尝试 49，其次在 48、50 附近兜底。
-            for idx in [49, 48, 50, 51]:
+            for idx in [49, 48, 50, 51, 52]:
                 if len(fields) > idx:
                     candidate = safe_text(fields[idx])
-                    if candidate not in ["", "--", "-"]:
-                        # 量比通常是 0~20 左右的小数，过滤明显不合理字段
-                        val = safe_float(candidate, -1)
-                        if 0 <= val <= 50:
-                            volume_ratio = candidate
-                            break
+                    val = safe_float(candidate, -1)
+                    if 0 <= val <= 50:
+                        volume_ratio = candidate
+                        break
 
-            # 行情时间字段，腾讯接口常见在 30 附近
-            quote_time = ""
-            if len(fields) > 30:
-                quote_time = safe_text(fields[30])
+            quote_time = safe_text(fields[30]) if len(fields) > 30 else ""
 
             if price <= 0 and pre_close > 0:
                 price = pre_close
@@ -262,9 +268,9 @@ def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
                 "最高": round(high, 2),
                 "最低": round(low, 2),
                 "昨收": round(pre_close, 2),
-                "成交额": amount,
                 "量比": volume_ratio,
                 "换手率": turnover,
+                "成交额": amount,
                 "行情时间": quote_time,
                 "数据源": "腾讯",
             })
@@ -353,9 +359,9 @@ def get_data_from_sina(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
                 "最高": round(high, 2),
                 "最低": round(low, 2),
                 "昨收": round(pre_close, 2),
-                "成交额": amount,
                 "量比": "",
                 "换手率": "",
+                "成交额": amount,
                 "行情时间": f"{date} {quote_time}",
                 "数据源": "新浪备用",
             })
