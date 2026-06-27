@@ -1,431 +1,731 @@
 # -*- coding: utf-8 -*-
-from datetime import datetime
-from zoneinfo import ZoneInfo
-from pathlib import Path
-import csv
-import html
-import json
+"""
+A股自选股监控网页生成程序
+输出位置：docs/index.html
+
+方案A：
+1. 主接口：腾讯行情接口
+2. 备用接口：新浪行情接口
+3. 不使用 AKShare
+4. 不使用东方财富
+5. 腾讯接口成功时，页面显示量比、换手率
+"""
+
+import os
+import time
+import random
+import traceback
+import datetime
+from typing import Dict, List, Tuple
+
 import requests
+import pandas as pd
 
-OUT_DIR = Path("stock_output")
-OUT_DIR.mkdir(exist_ok=True)
 
-DOCS_DIR = Path("docs")
-DOCS_DIR.mkdir(exist_ok=True)
+# =========================
+# 1. 股票池：39只
+# =========================
 
-STOCK_POOL = [
-    ("688012", "中微公司", "半导体设备"),
-    ("002371", "北方华创", "半导体设备"),
-    ("688120", "华海清科", "半导体设备"),
-    ("688082", "盛美上海", "半导体设备"),
-    ("688072", "拓荆科技", "半导体设备"),
-    ("688037", "芯源微", "半导体设备"),
-    ("688981", "中芯国际", "晶圆制造"),
-    ("688041", "海光信息", "国产算力"),
-    ("688256", "寒武纪", "国产算力"),
-    ("688047", "龙芯中科", "国产算力"),
-
-    ("002463", "沪电股份", "AI PCB"),
-    ("600183", "生益科技", "AI PCB"),
-    ("002916", "深南电路", "AI PCB"),
-    ("300476", "胜宏科技", "AI PCB"),
-    ("002384", "东山精密", "AI PCB"),
-    ("603228", "景旺电子", "AI PCB"),
-    ("002436", "兴森科技", "IC载板"),
-    ("002130", "沃尔核材", "高速互联"),
-    ("601138", "工业富联", "AI服务器"),
-    ("000977", "浪潮信息", "AI服务器"),
-
-    ("300308", "中际旭创", "光模块"),
-    ("300502", "新易盛", "光模块"),
-    ("300394", "天孚通信", "光模块"),
-    ("002281", "光迅科技", "光模块"),
-    ("300442", "润泽科技", "算力中心"),
-
-    ("001309", "德明利", "存储"),
-    ("603986", "兆易创新", "存储"),
-    ("603893", "瑞芯微", "芯片设计"),
-    ("688008", "澜起科技", "芯片设计"),
-    ("300661", "圣邦股份", "模拟芯片"),
-    ("688052", "纳芯微", "模拟芯片"),
-    ("002049", "紫光国微", "特种芯片"),
-
-    ("688300", "联瑞新材", "半导体材料"),
-    ("688126", "沪硅产业", "半导体材料"),
-    ("300666", "江丰电子", "半导体材料"),
-    ("688396", "华润微", "功率半导体"),
-    ("300373", "扬杰科技", "功率半导体"),
-    ("603290", "斯达半导", "功率半导体"),
-
-    ("688627", "精智达", "检测设备"),
-    ("688668", "鼎通科技", "连接器"),
-    ("688141", "杰华特", "电源芯片"),
-    ("300604", "长川科技", "检测设备"),
-    ("688200", "华峰测控", "检测设备"),
-    ("688361", "中科飞测", "检测设备"),
-
-    ("600536", "中国软件", "国产软件"),
-    ("688251", "井松智能", "机器人"),
-    ("300496", "中科创达", "智能汽车"),
-    ("300124", "汇川技术", "机器人"),
-    ("688017", "绿的谐波", "机器人"),
-    ("688306", "均普智能", "机器人"),
+STOCK_LIST = [
+    ("002371", "北方华创"),
+    ("688012", "中微公司"),
+    ("688072", "拓荆科技"),
+    ("688120", "华海清科"),
+    ("688037", "芯源微"),
+    ("002916", "深南电路"),
+    ("300476", "胜宏科技"),
+    ("002463", "沪电股份"),
+    ("600584", "长电科技"),
+    ("688041", "海光信息"),
+    ("603019", "中科曙光"),
+    ("001309", "德明利"),
+    ("600183", "生益科技"),
+    ("688981", "中芯国际"),
+    ("688008", "澜起科技"),
+    ("603986", "兆易创新"),
+    ("300661", "圣邦股份"),
+    ("688052", "纳芯微"),
+    ("603893", "瑞芯微"),
+    ("688300", "联瑞新材"),
+    ("300308", "中际旭创"),
+    ("300502", "新易盛"),
+    ("300394", "天孚通信"),
+    ("002281", "光迅科技"),
+    ("601138", "工业富联"),
+    ("000977", "浪潮信息"),
+    ("688047", "龙芯中科"),
+    ("688256", "寒武纪"),
+    ("300496", "中科创达"),
+    ("002049", "紫光国微"),
+    ("002384", "东山精密"),
+    ("603228", "景旺电子"),
+    ("002436", "兴森科技"),
+    ("688126", "沪硅产业"),
+    ("688141", "杰华特"),
+    ("688082", "盛美上海"),
+    ("688627", "精智达"),
+    ("688668", "鼎通科技"),
+    ("002130", "沃尔核材"),
 ]
 
 
-def now_cn():
-    return datetime.now(ZoneInfo("Asia/Shanghai"))
+# =========================
+# 2. 输出目录
+# =========================
+
+OUTPUT_DIR = "docs"
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "index.html")
 
 
-def sina_symbol(code):
-    return ("sh" if code.startswith("6") else "sz") + code
+# =========================
+# 3. 工具函数
+# =========================
+
+def now_str() -> str:
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def fetch_sina_quotes():
-    symbols = ",".join(sina_symbol(code) for code, _, _ in STOCK_POOL)
-    url = f"https://hq.sinajs.cn/list={symbols}"
+def get_market_prefix(code: str) -> str:
+    """
+    A股市场前缀：
+    6、688、689 开头一般为上海 sh
+    0、2、3 开头一般为深圳 sz
+    """
+    if code.startswith("6"):
+        return "sh"
+    return "sz"
+
+
+def safe_float(x, default=0.0) -> float:
+    try:
+        if x is None:
+            return default
+        if isinstance(x, str) and x.strip() == "":
+            return default
+        if isinstance(x, str) and x.strip() in ["--", "-", "None", "nan"]:
+            return default
+        return float(x)
+    except Exception:
+        return default
+
+
+def safe_text(x) -> str:
+    if x is None:
+        return ""
+    x = str(x).strip()
+    if x in ["", "None", "nan"]:
+        return ""
+    return x
+
+
+def format_amount(x) -> str:
+    value = safe_float(x, 0)
+    if value >= 100000000:
+        return f"{value / 100000000:.2f}亿"
+    if value >= 10000:
+        return f"{value / 10000:.2f}万"
+    return f"{value:.0f}"
+
+
+def request_text(url: str, headers: Dict[str, str], encoding: str = "gbk", timeout: int = 15) -> str:
+    """
+    带重试的文本请求。
+    """
+    last_error = None
+
+    for i in range(5):
+        try:
+            print(f"请求第 {i + 1} 次：{url[:120]}...")
+            time.sleep(random.uniform(1.2, 3.5))
+
+            resp = requests.get(url, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            resp.encoding = encoding
+
+            text = resp.text
+            if not text or len(text.strip()) < 20:
+                raise RuntimeError("接口返回内容过短或为空")
+
+            return text
+
+        except Exception as e:
+            last_error = e
+            print(f"请求失败：{repr(e)}")
+            time.sleep(6 + i * 6)
+
+    raise RuntimeError(f"连续 5 次请求失败：{repr(last_error)}")
+
+
+# =========================
+# 4. 腾讯行情接口：主接口
+# =========================
+
+def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
+    """
+    腾讯行情接口，主数据源。
+    尽量读取：
+    最新价、涨跌幅、涨跌额、今开、最高、最低、昨收、成交额、换手率、量比。
+    """
+
+    symbols = []
+    for code, _ in stock_list:
+        prefix = get_market_prefix(code)
+        symbols.append(prefix + code)
+
+    url = "https://qt.gtimg.cn/q=" + ",".join(symbols)
+
     headers = {
-        "Referer": "https://finance.sina.com.cn",
         "User-Agent": "Mozilla/5.0",
+        "Referer": "https://gu.qq.com/",
+        "Accept": "*/*",
+        "Connection": "close",
     }
 
-    r = requests.get(url, headers=headers, timeout=12)
-    r.encoding = "gbk"
+    text = request_text(url, headers=headers, encoding="gbk", timeout=20)
 
-    stock_map = {code: (name, sector) for code, name, sector in STOCK_POOL}
-    result = []
+    rows = []
+    name_map = {code: name for code, name in stock_list}
 
-    for line in r.text.splitlines():
-        if '="' not in line:
+    for raw_line in text.split(";"):
+        line = raw_line.strip()
+        if not line or '="' not in line:
             continue
-
-        left, right = line.split('="', 1)
-        arr = right.strip('";').split(",")
-
-        if len(arr) < 32 or arr[0] == "":
-            continue
-
-        symbol = left.split("_")[-1]
-        code = symbol[-6:]
-        name, sector = stock_map.get(code, (arr[0], ""))
 
         try:
-            open_p = float(arr[1])
-            prev_close = float(arr[2])
-            price = float(arr[3])
-            high = float(arr[4])
-            low = float(arr[5])
-            volume = float(arr[8])
-            amount = float(arr[9])
-            date = arr[30]
-            tm = arr[31]
-        except Exception:
-            continue
+            left, right = line.split('="', 1)
+            symbol = left.split("_")[-1]
+            code = symbol[-6:]
 
-        if price <= 0 or prev_close <= 0:
-            continue
+            content = right.rstrip('"')
+            fields = content.split("~")
 
-        pct = (price - prev_close) / prev_close * 100
-        change = price - prev_close
-        amount_yi = amount / 1e8
-        pos = (price - low) / (high - low) * 100 if high > low else 0
+            if len(fields) < 40:
+                print(f"腾讯字段不足，跳过：{line[:100]}")
+                continue
 
-        result.append({
-            "代码": code,
-            "名称": name,
-            "板块": sector,
-            "最新价": round(price, 2),
-            "涨跌幅": round(pct, 2),
-            "涨跌额": round(change, 2),
-            "今开": round(open_p, 2),
-            "最高": round(high, 2),
-            "最低": round(low, 2),
-            "昨收": round(prev_close, 2),
-            "成交额": round(amount_yi, 2),
-            "日内位置": round(pos, 1),
-            "行情时间": f"{date} {tm}",
-            "数据源": "新浪",
-        })
+            # 腾讯常见字段：
+            # 1 名称
+            # 3 当前价
+            # 4 昨收
+            # 5 今开
+            # 31 涨跌额
+            # 32 涨跌幅
+            # 33 最高
+            # 34 最低
+            # 37 成交额，单位通常为万元
+            # 38 换手率
+            # 49 量比，部分情况下存在
+            name = safe_text(fields[1])
+            price = safe_float(fields[3])
+            pre_close = safe_float(fields[4])
+            open_price = safe_float(fields[5])
 
-    return result
+            change = safe_float(fields[31]) if len(fields) > 31 else price - pre_close
+            pct = safe_float(fields[32]) if len(fields) > 32 else (change / pre_close * 100 if pre_close > 0 else 0)
 
+            high = safe_float(fields[33]) if len(fields) > 33 else 0
+            low = safe_float(fields[34]) if len(fields) > 34 else 0
 
-def calc_ai_score(row):
-    pct = row["涨跌幅"]
-    amount = row["成交额"]
-    pos = row["日内位置"]
-    sector = row["板块"]
+            amount_wan = safe_float(fields[37]) if len(fields) > 37 else 0
+            amount = amount_wan * 10000
 
-    score = 0
+            turnover = safe_text(fields[38]) if len(fields) > 38 else ""
 
-    if 1 <= pct <= 4:
-        score += 34
-    elif 4 < pct <= 6:
-        score += 30
-    elif 6 < pct <= 8:
-        score += 20
-    elif pct > 8:
-        score += 8
-    elif 0 <= pct < 1:
-        score += 18
-    elif -2 <= pct < 0:
-        score += 8
-    else:
-        score -= 10
+            volume_ratio = ""
+            # 腾讯接口不同股票/不同时间字段长度可能有差异，量比通常在较后字段。
+            # 优先尝试 49，其次在 48、50 附近兜底。
+            for idx in [49, 48, 50, 51]:
+                if len(fields) > idx:
+                    candidate = safe_text(fields[idx])
+                    if candidate not in ["", "--", "-"]:
+                        # 量比通常是 0~20 左右的小数，过滤明显不合理字段
+                        val = safe_float(candidate, -1)
+                        if 0 <= val <= 50:
+                            volume_ratio = candidate
+                            break
 
-    if amount >= 100:
-        score += 28
-    elif amount >= 50:
-        score += 23
-    elif amount >= 20:
-        score += 16
-    elif amount >= 10:
-        score += 10
-    else:
-        score += 3
+            # 行情时间字段，腾讯接口常见在 30 附近
+            quote_time = ""
+            if len(fields) > 30:
+                quote_time = safe_text(fields[30])
 
-    if pos >= 80:
-        score += 20
-    elif pos >= 65:
-        score += 16
-    elif pos >= 50:
-        score += 10
-    elif pos >= 30:
-        score += 3
-    else:
-        score -= 8
+            if price <= 0 and pre_close > 0:
+                price = pre_close
 
-    if sector in ["半导体设备", "晶圆制造", "国产算力"]:
-        score += 18
-    elif sector in ["AI PCB", "IC载板", "AI服务器", "存储"]:
-        score += 12
-    elif sector in ["光模块", "芯片设计", "模拟芯片", "半导体材料"]:
-        score += 8
-    else:
-        score += 3
+            rows.append({
+                "代码": code,
+                "名称": name_map.get(code, name),
+                "最新价": round(price, 2),
+                "涨跌幅": round(pct, 2),
+                "涨跌额": round(change, 2),
+                "今开": round(open_price, 2),
+                "最高": round(high, 2),
+                "最低": round(low, 2),
+                "昨收": round(pre_close, 2),
+                "成交额": amount,
+                "量比": volume_ratio,
+                "换手率": turnover,
+                "行情时间": quote_time,
+                "数据源": "腾讯",
+            })
 
-    risk = []
+        except Exception as e:
+            print(f"解析腾讯行情失败：{repr(e)}")
+            print(line[:160])
 
-    if pct >= 8:
-        score -= 18
-        risk.append("涨幅过大")
-    if pct >= 10:
-        score -= 12
-        risk.append("高位追涨风险")
-    if pos < 35 and pct > 0:
-        score -= 8
-        risk.append("冲高回落")
-    if amount < 8:
-        score -= 6
-        risk.append("成交额偏小")
+    df = pd.DataFrame(rows)
 
-    score = max(0, min(100, score))
+    if df.empty:
+        raise RuntimeError("腾讯接口没有解析到有效股票数据")
 
-    if score >= 78:
-        level = "★★★★★"
-        action = "优先关注，可考虑"
-    elif score >= 65:
-        level = "★★★★☆"
-        action = "重点观察，等回踩"
-    elif score >= 50:
-        level = "★★★☆☆"
-        action = "观察，不急买"
-    else:
-        level = "★★☆☆☆"
-        action = "暂缓"
-
-    if risk:
-        action += "；" + "、".join(risk)
-
-    return score, level, action
+    return df
 
 
-def build_rows():
-    rows = fetch_sina_quotes()
+# =========================
+# 5. 新浪行情接口：备用接口
+# =========================
 
-    for r in rows:
-        score, level, action = calc_ai_score(r)
-        r["AI分"] = score
-        r["AI优先级"] = level
-        r["AI建议"] = action
+def get_data_from_sina(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
+    """
+    新浪行情接口，备用。
+    新浪通常没有直接给出量比、换手率，所以这两列保留为空。
+    """
 
-    rows.sort(key=lambda x: x["AI分"], reverse=True)
-    return rows
+    symbols = []
+    for code, _ in stock_list:
+        prefix = get_market_prefix(code)
+        symbols.append(prefix + code)
 
+    url = "https://hq.sinajs.cn/list=" + ",".join(symbols)
 
-def save_csv(rows):
-    for path in [OUT_DIR / "stock_watch.csv", DOCS_DIR / "latest.csv"]:
-        with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-            writer.writeheader()
-            writer.writerows(rows)
-
-
-def save_txt(rows):
-    path = OUT_DIR / "stock_watch.txt"
-    t = now_cn().strftime("%Y-%m-%d %H:%M:%S")
-
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(f"A股短线AI观察表\n生成时间：{t} 北京时间\n")
-        f.write("=" * 120 + "\n")
-        for i, r in enumerate(rows, 1):
-            f.write(
-                f"{i:02d}. {r['代码']} {r['名称']} "
-                f"{r['AI优先级']} AI分:{r['AI分']} "
-                f"涨幅:{r['涨跌幅']}% 价:{r['最新价']} "
-                f"成交额:{r['成交额']}亿 日内位置:{r['日内位置']}% "
-                f"建议:{r['AI建议']}\n"
-            )
-
-
-def save_json(rows):
-    data = {
-        "update_time": now_cn().strftime("%Y-%m-%d %H:%M:%S"),
-        "timezone": "Asia/Shanghai",
-        "stock_count": len(rows),
-        "stocks": rows,
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": "https://finance.sina.com.cn/",
+        "Accept": "*/*",
+        "Connection": "close",
     }
 
-    for path in [OUT_DIR / "latest.json", DOCS_DIR / "latest.json"]:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+    text = request_text(url, headers=headers, encoding="gbk", timeout=20)
+
+    rows = []
+    name_map = {code: name for code, name in stock_list}
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or '="' not in line:
+            continue
+
+        try:
+            left, right = line.split('="', 1)
+            symbol = left.split("_")[-1]
+            code = symbol[-6:]
+
+            content = right.rstrip('";')
+            fields = content.split(",")
+
+            if len(fields) < 32:
+                print(f"新浪字段不足，跳过：{line[:100]}")
+                continue
+
+            name = fields[0]
+            open_price = safe_float(fields[1])
+            pre_close = safe_float(fields[2])
+            price = safe_float(fields[3])
+            high = safe_float(fields[4])
+            low = safe_float(fields[5])
+            amount = safe_float(fields[9])
+            date = fields[30]
+            quote_time = fields[31]
+
+            if price <= 0 and pre_close > 0:
+                price = pre_close
+
+            change = price - pre_close if pre_close > 0 else 0
+            pct = change / pre_close * 100 if pre_close > 0 else 0
+
+            rows.append({
+                "代码": code,
+                "名称": name_map.get(code, name),
+                "最新价": round(price, 2),
+                "涨跌幅": round(pct, 2),
+                "涨跌额": round(change, 2),
+                "今开": round(open_price, 2),
+                "最高": round(high, 2),
+                "最低": round(low, 2),
+                "昨收": round(pre_close, 2),
+                "成交额": amount,
+                "量比": "",
+                "换手率": "",
+                "行情时间": f"{date} {quote_time}",
+                "数据源": "新浪备用",
+            })
+
+        except Exception as e:
+            print(f"解析新浪行情失败：{repr(e)}")
+            print(line[:160])
+
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+        raise RuntimeError("新浪接口没有解析到有效股票数据")
+
+    return df
 
 
-def color_pct(v):
+# =========================
+# 6. 统一获取行情
+# =========================
+
+def get_market_data() -> pd.DataFrame:
+    """
+    优先腾讯，失败后新浪兜底。
+    """
+
+    errors = []
+
     try:
-        x = float(v)
-        if x > 0:
-            return "red"
-        if x < 0:
-            return "green"
-    except Exception:
-        pass
-    return ""
+        print("开始使用腾讯接口获取行情...")
+        df = get_data_from_tencent(STOCK_LIST)
+        print(f"腾讯接口成功，获取 {len(df)} 只股票。")
+        return df
+    except Exception as e:
+        errors.append("腾讯接口失败：" + repr(e))
+        print(errors[-1])
+        print(traceback.format_exc())
+
+    try:
+        print("开始使用新浪备用接口获取行情...")
+        df = get_data_from_sina(STOCK_LIST)
+        print(f"新浪备用接口成功，获取 {len(df)} 只股票。")
+        return df
+    except Exception as e:
+        errors.append("新浪备用接口失败：" + repr(e))
+        print(errors[-1])
+        print(traceback.format_exc())
+
+    raise RuntimeError("\n".join(errors))
 
 
-def save_html(rows):
-    t = now_cn().strftime("%Y-%m-%d %H:%M:%S")
+# =========================
+# 7. 判断级别和提示
+# =========================
 
-    cols = [
-        "排名", "代码", "名称", "板块", "最新价", "涨跌幅", "涨跌额",
-        "今开", "最高", "最低", "昨收", "成交额", "日内位置",
-        "AI分", "AI优先级", "AI建议", "行情时间"
-    ]
+def make_signal(row) -> str:
+    pct = safe_float(row.get("涨跌幅", 0))
+    volume_ratio = safe_float(row.get("量比", 0))
+    turnover = safe_float(row.get("换手率", 0))
 
-    trs = []
-    for i, r in enumerate(rows, 1):
-        rr = dict(r)
-        rr["排名"] = i
-        tds = []
+    if pct >= 7:
+        return "涨幅过大，谨慎追高"
+    elif 4 <= pct < 7:
+        if volume_ratio >= 1.2 or turnover >= 3:
+            return "强势明显，只适合小仓观察"
+        return "涨幅较大，谨慎观察"
+    elif 2 <= pct < 4:
+        if volume_ratio >= 1.2:
+            return "量价偏强，重点观察"
+        return "涨幅较好，继续观察"
+    elif 0 <= pct < 2:
+        if volume_ratio >= 1.2:
+            return "温和放量，可继续盯"
+        return "走势温和，可继续盯"
+    elif -2 <= pct < 0:
+        return "小幅回调，等企稳"
+    elif -4 <= pct < -2:
+        return "调整偏弱，暂缓"
+    else:
+        return "跌幅较大，先不急接"
 
-        for c in cols:
-            val = rr.get(c, "")
-            cls = ""
-            if c in ["涨跌幅", "涨跌额"]:
-                cls = color_pct(val)
-            if c == "AI优先级" and "★★★★★" in str(val):
-                cls = "strong"
-            tds.append(f'<td class="{cls}">{html.escape(str(val))}</td>')
 
-        trs.append("<tr>" + "".join(tds) + "</tr>")
+def make_level(row) -> str:
+    pct = safe_float(row.get("涨跌幅", 0))
+    volume_ratio = safe_float(row.get("量比", 0))
+    turnover = safe_float(row.get("换手率", 0))
 
-    html_text = f"""<!doctype html>
+    if 1.5 <= pct <= 5.5 and (volume_ratio >= 1.2 or turnover >= 3):
+        return "A"
+    elif 0 <= pct < 1.5 and volume_ratio >= 1.2:
+        return "B"
+    elif -2 <= pct < 1.5:
+        return "B"
+    else:
+        return "C"
+
+
+# =========================
+# 8. 生成正常网页
+# =========================
+
+def generate_html(df: pd.DataFrame) -> str:
+    update_time = now_str()
+
+    html = f"""
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<title>A股短线AI观察表</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-body {{
-    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", Arial, sans-serif;
-    margin: 18px;
-    background: #f6f8fa;
-    color: #24292f;
-}}
-h1 {{ margin-bottom: 6px; }}
-.time {{ color: #666; margin-bottom: 12px; }}
-.note {{
-    background: #fff8c5;
-    border: 1px solid #eac54f;
-    padding: 10px 14px;
-    border-radius: 8px;
-    margin-bottom: 14px;
-    line-height: 1.6;
-}}
-.table-wrap {{ overflow-x: auto; }}
-table {{
-    border-collapse: collapse;
-    width: 100%;
-    background: white;
-    font-size: 13px;
-}}
-th, td {{
-    border-bottom: 1px solid #eaeef2;
-    padding: 7px 8px;
-    text-align: center;
-    white-space: nowrap;
-}}
-th {{
-    background: #0969da;
-    color: white;
-    position: sticky;
-    top: 0;
-}}
-tr:hover {{ background: #f1f8ff; }}
-.red {{ color: #d1242f; font-weight: bold; }}
-.green {{ color: #1a7f37; font-weight: bold; }}
-.strong {{ color: #cf222e; font-weight: bold; }}
-.footer {{
-    margin-top: 16px;
-    color: #666;
-    font-size: 13px;
-    line-height: 1.6;
-}}
-</style>
+    <meta charset="UTF-8">
+    <title>A股短线观察表</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", Arial, sans-serif;
+            margin: 24px;
+            background: #f6f8fa;
+            color: #24292f;
+        }}
+        h1 {{
+            margin-bottom: 6px;
+        }}
+        .time {{
+            color: #666;
+            margin-bottom: 20px;
+        }}
+        .note {{
+            background: #fff8c5;
+            border: 1px solid #eac54f;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            line-height: 1.7;
+        }}
+        .table-wrap {{
+            overflow-x: auto;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }}
+        th, td {{
+            border-bottom: 1px solid #eaeef2;
+            padding: 9px 8px;
+            text-align: center;
+            font-size: 14px;
+            white-space: nowrap;
+        }}
+        th {{
+            background: #0969da;
+            color: white;
+            position: sticky;
+            top: 0;
+        }}
+        tr:hover {{
+            background: #f1f8ff;
+        }}
+        .red {{
+            color: #d1242f;
+            font-weight: bold;
+        }}
+        .green {{
+            color: #1a7f37;
+            font-weight: bold;
+        }}
+        .level-a {{
+            background: #ffecec;
+            color: #cf222e;
+            font-weight: bold;
+            border-radius: 4px;
+            padding: 3px 7px;
+        }}
+        .level-b {{
+            background: #fff8c5;
+            color: #7d4e00;
+            font-weight: bold;
+            border-radius: 4px;
+            padding: 3px 7px;
+        }}
+        .level-c {{
+            background: #eaeef2;
+            color: #57606a;
+            font-weight: bold;
+            border-radius: 4px;
+            padding: 3px 7px;
+        }}
+        .footer {{
+            margin-top: 18px;
+            color: #666;
+            font-size: 13px;
+            line-height: 1.6;
+        }}
+    </style>
 </head>
 <body>
-<h1>A股短线AI观察表</h1>
-<div class="time">页面生成时间：{t} 北京时间</div>
-<div class="note">
-本页面按你的短线风格自动排序：安全优先、1～5天吃肉、主线优先、避免追过热。<br>
-JSON数据地址：<strong>latest.json</strong>
-</div>
-<div class="table-wrap">
-<table>
-<thead>
-<tr>{''.join(f'<th>{c}</th>' for c in cols)}</tr>
-</thead>
-<tbody>
-{''.join(trs)}
-</tbody>
-</table>
-</div>
-<div class="footer">
-说明：数据来自免费行情接口，可能存在延迟或字段异常。结果仅用于盘面观察，不构成投资建议。
-</div>
+    <h1>A股短线观察表</h1>
+    <div class="time">页面生成时间：{update_time}</div>
+
+    <div class="note">
+        本页面由 GitHub Actions 自动生成，输出文件为 <strong>docs/index.html</strong>。<br>
+        主数据源为腾讯行情接口，备用数据源为新浪行情接口。腾讯接口成功时会显示量比与换手率。<br>
+        A = 重点观察，B = 等待机会，C = 谨慎处理。结果仅用于盘面观察，不构成投资建议。
+    </div>
+
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>级别</th>
+                <th>代码</th>
+                <th>名称</th>
+                <th>最新价</th>
+                <th>涨跌幅</th>
+                <th>涨跌额</th>
+                <th>今开</th>
+                <th>最高</th>
+                <th>最低</th>
+                <th>昨收</th>
+                <th>量比</th>
+                <th>换手率</th>
+                <th>成交额</th>
+                <th>数据源</th>
+                <th>行情时间</th>
+                <th>操作提示</th>
+            </tr>
+        </thead>
+        <tbody>
+"""
+
+    for _, row in df.iterrows():
+        pct_float = safe_float(row.get("涨跌幅", 0))
+        pct_class = "red" if pct_float >= 0 else "green"
+
+        level = row.get("级别", "C")
+        if level == "A":
+            level_class = "level-a"
+        elif level == "B":
+            level_class = "level-b"
+        else:
+            level_class = "level-c"
+
+        html += f"""
+            <tr>
+                <td><span class="{level_class}">{level}</span></td>
+                <td>{row.get("代码", "")}</td>
+                <td>{row.get("名称", "")}</td>
+                <td>{row.get("最新价", "")}</td>
+                <td class="{pct_class}">{row.get("涨跌幅", "")}%</td>
+                <td>{row.get("涨跌额", "")}</td>
+                <td>{row.get("今开", "")}</td>
+                <td>{row.get("最高", "")}</td>
+                <td>{row.get("最低", "")}</td>
+                <td>{row.get("昨收", "")}</td>
+                <td>{row.get("量比", "")}</td>
+                <td>{row.get("换手率", "")}</td>
+                <td>{row.get("成交额", "")}</td>
+                <td>{row.get("数据源", "")}</td>
+                <td>{row.get("行情时间", "")}</td>
+                <td>{row.get("操作提示", "")}</td>
+            </tr>
+"""
+
+    html += """
+        </tbody>
+    </table>
+    </div>
+
+    <div class="footer">
+        说明：本表为自选股快速观察表。腾讯接口返回的量比、换手率用于横向比较强弱；不同交易软件的统计口径可能有细微差异。实际操作仍需结合交易软件、指数环境、板块强弱、分时承接和自身仓位判断。
+    </div>
 </body>
-</html>"""
+</html>
+"""
+    return html
 
-    for path in [
-        OUT_DIR / "stock_watch.html",
-        DOCS_DIR / "index.html",
-        DOCS_DIR / "manual_latest.html",
-    ]:
-        path.write_text(html_text, encoding="utf-8")
 
+# =========================
+# 9. 生成错误网页
+# =========================
+
+def generate_error_html(error_message: str) -> str:
+    update_time = now_str()
+
+    return f"""
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>A股短线观察表</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body style="font-family: Microsoft YaHei, Arial; padding: 30px; line-height: 1.8;">
+    <h1>A股短线观察表</h1>
+    <p>页面生成时间：{update_time}</p>
+
+    <h2 style="color:#d1242f;">本次行情获取失败</h2>
+
+    <p>
+        程序已经成功运行到生成网页步骤，但腾讯和新浪行情接口都没有返回有效数据。
+        这通常是免费行情接口临时不可用、GitHub Actions 网络访问受限，或接口字段临时变化造成的。
+    </p>
+
+    <p>
+        你可以稍后在 GitHub 里手动重新运行：
+        <strong>Actions → stock-watch → Run workflow</strong>
+    </p>
+
+    <h3>错误信息</h3>
+    <pre style="background:#f6f8fa; padding:15px; white-space:pre-wrap; border:1px solid #d0d7de;">
+{error_message}
+    </pre>
+</body>
+</html>
+"""
+
+
+# =========================
+# 10. 主程序
+# =========================
 
 def main():
-    rows = build_rows()
-    save_csv(rows)
-    save_txt(rows)
-    save_json(rows)
-    save_html(rows)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    print("生成完成")
-    print("docs/index.html")
-    print("docs/manual_latest.html")
-    print("docs/latest.json")
-    print("docs/latest.csv")
+    try:
+        market_df = get_market_data()
+
+        stock_codes = [code for code, _ in STOCK_LIST]
+        name_map = {code: name for code, name in STOCK_LIST}
+        order_map = {code: i for i, (code, _) in enumerate(STOCK_LIST)}
+
+        watch_df = market_df[market_df["代码"].isin(stock_codes)].copy()
+
+        if watch_df.empty:
+            raise RuntimeError("没有匹配到股票池中的股票，可能是行情接口字段变化或数据为空。")
+
+        watch_df["排序"] = watch_df["代码"].map(order_map)
+        watch_df = watch_df.sort_values("排序").drop(columns=["排序"])
+
+        watch_df["名称"] = watch_df["代码"].map(name_map).fillna(watch_df["名称"])
+
+        watch_df["操作提示"] = watch_df.apply(make_signal, axis=1)
+        watch_df["级别"] = watch_df.apply(make_level, axis=1)
+
+        if "成交额" in watch_df.columns:
+            watch_df["成交额"] = watch_df["成交额"].apply(format_amount)
+
+        html = generate_html(watch_df)
+
+        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+            f.write(html)
+
+        print(f"网页已生成：{OUTPUT_FILE}")
+        print(f"共生成股票数量：{len(watch_df)}")
+        print("使用数据源：")
+        print(watch_df["数据源"].value_counts())
+
+    except Exception as e:
+        error_message = repr(e) + "\n\n" + traceback.format_exc()
+
+        html = generate_error_html(error_message)
+
+        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+            f.write(html)
+
+        print(f"行情获取失败，但已生成错误说明页：{OUTPUT_FILE}")
+        print(error_message)
+
+        return
 
 
 if __name__ == "__main__":
