@@ -27,6 +27,7 @@ jobs:
 
     env:
       TZ: Asia/Shanghai
+      SITE_BASE_URL: https://chenrj985-ai.github.io/stock
 
     steps:
       - name: Checkout
@@ -44,21 +45,41 @@ jobs:
 
       - name: Run stock script
         run: |
-          mkdir -p docs
+          mkdir -p docs/history
           python stockchoice.py
 
-      - name: Save result copies
+      - name: Save result copies and latest unique URL
         run: |
           mkdir -p docs/history
 
-          NOW=$(TZ='Asia/Shanghai' date +'%Y%m%d_%H%M')
-          cp docs/index.html docs/history/${NOW}.html
+          LATEST_HISTORY_FILE=$(ls -t docs/history/*.html | head -n 1)
+          LATEST_BASENAME=$(basename "$LATEST_HISTORY_FILE")
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             cp docs/index.html docs/manual_latest.html
           else
             cp docs/index.html docs/schedule_latest.html
           fi
+
+          echo "${SITE_BASE_URL}/history/${LATEST_BASENAME}" > docs/latest_url.txt
+
+          cat > docs/latest.html << EOF
+          <!DOCTYPE html>
+          <html lang="zh-CN">
+          <head>
+            <meta charset="UTF-8">
+            <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+            <meta http-equiv="Pragma" content="no-cache">
+            <meta http-equiv="Expires" content="0">
+            <meta http-equiv="refresh" content="0; url=history/${LATEST_BASENAME}">
+            <title>跳转到最新结果</title>
+          </head>
+          <body>
+            <p>正在跳转到最新唯一结果页面：</p>
+            <p><a href="history/${LATEST_BASENAME}">history/${LATEST_BASENAME}</a></p>
+          </body>
+          </html>
+          EOF
 
       - name: Commit result to docs
         run: |
