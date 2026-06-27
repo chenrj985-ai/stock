@@ -1,21 +1,25 @@
-name: Stock Watch
+name: stock-watch
 
 on:
   workflow_dispatch:
-
   schedule:
-    - cron: '18 3 * * 1-5'   # 北京11:18
-    - cron: '40 5 * * 1-5'   # 北京13:40
-    - cron: '20 6 * * 1-5'   # 北京14:20
-    - cron: '40 6 * * 1-5'   # 北京14:40
-    - cron: '50 6 * * 1-5'   # 北京14:50
+    # 北京时间 11:15，工作日
+    - cron: "15 3 * * 1-5"
+
+    # 北京时间 13:40，工作日
+    - cron: "40 5 * * 1-5"
+
+    # 北京时间 14:20，工作日
+    - cron: "20 6 * * 1-5"
+
+    # 北京时间 14:45，工作日
+    - cron: "45 6 * * 1-5"
+
+    # 北京时间 14:53，工作日
+    - cron: "53 6 * * 1-5"
 
 permissions:
   contents: write
-
-concurrency:
-  group: stock-watch
-  cancel-in-progress: true
 
 jobs:
   run:
@@ -25,46 +29,41 @@ jobs:
       TZ: Asia/Shanghai
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install Chinese Fonts
+      - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y fonts-noto-cjk
+          python -m pip install --upgrade pip
+          pip install --upgrade pandas requests
 
-      - name: Install Packages
+      - name: Run stock script
         run: |
-          pip install -r requirements.txt
-
-      - name: Run Stock Script
-        run: |
+          mkdir -p docs
           python stockchoice.py
 
-      - name: Show Generate Time
+      - name: Save result copies
         run: |
-          echo "北京时间：$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S')"
+          mkdir -p docs/history
 
-      - name: Commit Latest Files
+          NOW=$(TZ='Asia/Shanghai' date +'%Y%m%d_%H%M')
+          cp docs/index.html docs/history/${NOW}.html
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            cp docs/index.html docs/manual_latest.html
+          else
+            cp docs/index.html docs/schedule_latest.html
+          fi
+
+      - name: Commit result to docs
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-          git add docs/
-          git add stock_output/
-
-          git commit -m "Auto update stock page" || echo "No changes"
-
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs
+          git commit -m "Update stock pages" || echo "No changes to commit"
           git push
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: stock_output
-          path: stock_output/
