@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """
 A股自选股监控网页生成程序
-输出位置：docs/index.html
+输出位置：
+1. docs/index.html
+2. docs/history/时间戳.html
 
 特点：
 1. 不使用 AKShare
 2. 不使用东方财富
 3. 主接口：腾讯行情接口
 4. 备用接口：新浪行情接口
-5. 腾讯接口成功时，页面显示量比、换手率
-6. 输出结构保持不变：docs/index.html
+5. 每次运行生成唯一历史网页，避免缓存
 """
 
 import os
@@ -75,23 +76,28 @@ STOCK_LIST = [
 # =========================
 
 OUTPUT_DIR = "docs"
+HISTORY_DIR = os.path.join(OUTPUT_DIR, "history")
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "index.html")
+LATEST_URL_FILE = os.path.join(OUTPUT_DIR, "latest_url.txt")
 
 
 # =========================
 # 3. 工具函数
 # =========================
 
+def now_dt() -> datetime.datetime:
+    return datetime.datetime.now()
+
+
 def now_str() -> str:
-    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return now_dt().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def timestamp_str() -> str:
+    return now_dt().strftime("%Y%m%d_%H%M_%S")
 
 
 def get_market_prefix(code: str) -> str:
-    """
-    A股市场前缀：
-    6、688、689 开头一般为上海 sh
-    0、2、3 开头一般为深圳 sz
-    """
     if code.startswith("6"):
         return "sh"
     return "sz"
@@ -134,9 +140,6 @@ def request_text(
     encoding: str = "gbk",
     timeout: int = 15
 ) -> str:
-    """
-    带重试的文本请求。
-    """
     last_error = None
 
     for i in range(5):
@@ -167,17 +170,9 @@ def request_text(
 # =========================
 
 def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
-    """
-    腾讯行情接口，主数据源。
-
-    尽量读取：
-    最新价、涨跌幅、涨跌额、今开、最高、最低、昨收、成交额、换手率、量比。
-    """
-
     symbols = []
     for code, _ in stock_list:
-        prefix = get_market_prefix(code)
-        symbols.append(prefix + code)
+        symbols.append(get_market_prefix(code) + code)
 
     url = "https://qt.gtimg.cn/q=" + ",".join(symbols)
 
@@ -210,20 +205,6 @@ def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
                 print(f"腾讯字段不足，跳过：{line[:100]}")
                 continue
 
-            # 腾讯常见字段：
-            # 1  名称
-            # 3  当前价
-            # 4  昨收
-            # 5  今开
-            # 30 行情时间
-            # 31 涨跌额
-            # 32 涨跌幅
-            # 33 最高
-            # 34 最低
-            # 37 成交额，通常单位为万元
-            # 38 换手率
-            # 49 附近有时为量比，不同时间/标的可能有差异
-
             name = safe_text(fields[1])
             price = safe_float(fields[3])
             pre_close = safe_float(fields[4])
@@ -242,8 +223,6 @@ def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
 
             turnover = safe_text(fields[38]) if len(fields) > 38 else ""
 
-            # 尝试提取量比。
-            # 腾讯不同字段版本位置可能略有差异，所以在 48-52 附近兜底。
             volume_ratio = ""
             for idx in [49, 48, 50, 51, 52]:
                 if len(fields) > idx:
@@ -292,15 +271,9 @@ def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
 # =========================
 
 def get_data_from_sina(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
-    """
-    新浪行情接口，备用。
-    新浪通常没有直接给出量比、换手率，所以这两列保留为空。
-    """
-
     symbols = []
     for code, _ in stock_list:
-        prefix = get_market_prefix(code)
-        symbols.append(prefix + code)
+        symbols.append(get_market_prefix(code) + code)
 
     url = "https://hq.sinajs.cn/list=" + ",".join(symbols)
 
@@ -383,10 +356,6 @@ def get_data_from_sina(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
 # =========================
 
 def get_market_data() -> pd.DataFrame:
-    """
-    优先腾讯，失败后新浪兜底。
-    """
-
     errors = []
 
     try:
@@ -459,10 +428,10 @@ def make_level(row) -> str:
 
 
 # =========================
-# 8. 生成正常网页
+# 8. 生成网页
 # =========================
 
-def generate_html(df: pd.DataFrame) -> str:
+def generate_html(df: pd.DataFrame, version_name: str) -> str:
     update_time = now_str()
 
     html = f"""
@@ -472,6 +441,11 @@ def generate_html(df: pd.DataFrame) -> str:
     <meta charset="UTF-8">
     <title>A股短线观察表</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+
     <style>
         body {{
             font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", Arial, sans-serif;
@@ -485,6 +459,7 @@ def generate_html(df: pd.DataFrame) -> str:
         .time {{
             color: #666;
             margin-bottom: 20px;
+            line-height: 1.7;
         }}
         .note {{
             background: #fff8c5;
@@ -560,12 +535,16 @@ def generate_html(df: pd.DataFrame) -> str:
 </head>
 <body>
     <h1>A股短线观察表</h1>
-    <div class="time">页面生成时间：{update_time}</div>
+    <div class="time">
+        页面生成时间：{update_time}<br>
+        唯一版本号：{version_name}
+    </div>
 
     <div class="note">
-        本页面由 GitHub Actions 自动生成，输出文件为 <strong>docs/index.html</strong>。<br>
-        主数据源为腾讯行情接口，备用数据源为新浪行情接口。腾讯接口成功时会显示量比与换手率。<br>
-        A = 重点观察，B = 等待机会，C = 谨慎处理。结果仅用于盘面观察，不构成投资建议。
+        本页面由 GitHub Actions 自动生成。<br>
+        为避免缓存，每次运行都会生成唯一历史页面：<strong>docs/history/{version_name}.html</strong>。<br>
+        你截图或发给我分析时，优先使用这个唯一历史页面链接。<br>
+        主数据源为腾讯行情接口，备用数据源为新浪行情接口。腾讯接口成功时会显示量比与换手率。
     </div>
 
     <div class="table-wrap">
@@ -640,11 +619,7 @@ def generate_html(df: pd.DataFrame) -> str:
     return html
 
 
-# =========================
-# 9. 生成错误网页
-# =========================
-
-def generate_error_html(error_message: str) -> str:
+def generate_error_html(error_message: str, version_name: str) -> str:
     update_time = now_str()
 
     return f"""
@@ -654,19 +629,19 @@ def generate_error_html(error_message: str) -> str:
     <meta charset="UTF-8">
     <title>A股短线观察表</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
 </head>
 <body style="font-family: Microsoft YaHei, Arial; padding: 30px; line-height: 1.8;">
     <h1>A股短线观察表</h1>
     <p>页面生成时间：{update_time}</p>
+    <p>唯一版本号：{version_name}</p>
 
     <h2 style="color:#d1242f;">本次行情获取失败</h2>
 
     <p>
         程序已经成功运行到生成网页步骤，但腾讯和新浪行情接口都没有返回有效数据。
-        这通常是免费行情接口临时不可用、GitHub Actions 网络访问受限，或接口字段临时变化造成的。
-    </p>
-
-    <p>
         你可以稍后在 GitHub 里手动重新运行：
         <strong>Actions → stock-watch → Run workflow</strong>
     </p>
@@ -681,11 +656,15 @@ def generate_error_html(error_message: str) -> str:
 
 
 # =========================
-# 10. 主程序
+# 9. 主程序
 # =========================
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(HISTORY_DIR, exist_ok=True)
+
+    version_name = timestamp_str()
+    history_file = os.path.join(HISTORY_DIR, f"{version_name}.html")
 
     try:
         market_df = get_market_data()
@@ -710,28 +689,35 @@ def main():
         if "成交额" in watch_df.columns:
             watch_df["成交额"] = watch_df["成交额"].apply(format_amount)
 
-        html = generate_html(watch_df)
+        html = generate_html(watch_df, version_name)
 
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             f.write(html)
 
-        print(f"网页已生成：{OUTPUT_FILE}")
+        with open(history_file, "w", encoding="utf-8") as f:
+            f.write(html)
+
+        print(f"最新网页已生成：{OUTPUT_FILE}")
+        print(f"唯一历史网页已生成：{history_file}")
         print(f"共生成股票数量：{len(watch_df)}")
         print("使用数据源：")
         print(watch_df["数据源"].value_counts())
 
     except Exception as e:
         error_message = repr(e) + "\n\n" + traceback.format_exc()
-
-        html = generate_error_html(error_message)
+        html = generate_error_html(error_message, version_name)
 
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             f.write(html)
 
+        with open(history_file, "w", encoding="utf-8") as f:
+            f.write(html)
+
         print(f"行情获取失败，但已生成错误说明页：{OUTPUT_FILE}")
+        print(f"唯一错误说明页已生成：{history_file}")
         print(error_message)
 
-        return
+    return
 
 
 if __name__ == "__main__":
