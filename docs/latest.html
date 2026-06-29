@@ -2,14 +2,39 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <meta http-equiv="refresh" content="0; url=history/20260628_1035_38.html">
-  <title>跳转到最新结果</title>
+  <title>跳转到最新股票结果</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", Arial, sans-serif;
+      padding: 30px;
+      line-height: 1.8;
+    }
+  </style>
 </head>
 <body>
-  <p>正在跳转到最新唯一结果页面：</p>
-  <p><a href="history/20260628_1035_38.html">history/20260628_1035_38.html</a></p>
+  <h2>正在打开最新股票结果...</h2>
+  <p>如果没有自动跳转，请稍等几秒后刷新。</p>
+
+  <script>
+    const t = Date.now();
+    fetch('latest_url.txt?t=' + t, { cache: 'no-store' })
+      .then(response => response.text())
+      .then(url => {
+        const target = url.trim();
+        if (target) {
+          window.location.href = target + '?t=' + t;
+        } else {
+          document.body.innerHTML += '<p>latest_url.txt 为空，请重新运行 Actions。</p>';
+        }
+      })
+      .catch(error => {
+        document.body.innerHTML += '<p>读取 latest_url.txt 失败，请重新运行 Actions。</p>';
+        document.body.innerHTML += '<pre>' + error + '</pre>';
+      });
+  </script>
 </body>
 </html>
