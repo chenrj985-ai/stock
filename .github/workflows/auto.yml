@@ -75,6 +75,18 @@ jobs:
 
           # 写入最新唯一网页地址
           echo "${SITE_BASE_URL}/history/${LATEST_BASENAME}" > docs/latest_url.txt
+                    # 同时生成 latest_manifest.json，方便我校验是否读到最新版本
+          VERSION_NAME="${LATEST_BASENAME%.html}"
+          BJ_TIME=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
+
+          cat > docs/latest_manifest.json << EOF
+          {
+            "latest_url": "${SITE_BASE_URL}/history/${LATEST_BASENAME}",
+            "version": "${VERSION_NAME}",
+            "beijing_time": "${BJ_TIME}",
+            "note": "Use this file with cache-busting query parameter, for example latest_manifest.json?t=timestamp"
+          }
+          EOF
 
           # 生成固定入口 latest.html
           cat > docs/latest.html << 'EOF'
