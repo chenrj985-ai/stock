@@ -68,9 +68,6 @@ jobs:
           echo "${SITE_BASE_URL}/history/${LATEST_BASENAME}" > docs/latest_url.txt
 
           # 生成固定入口 latest.html
-          # 以后你直接打开：
-          # https://chenrj985-ai.github.io/stock/latest.html
-          # 它会自动读取 latest_url.txt 并跳转到最新唯一页面
           cat > docs/latest.html << 'EOF'
           <!DOCTYPE html>
           <html lang="zh-CN">
