@@ -3,20 +3,17 @@ name: stock-watch
 on:
   workflow_dispatch:
   schedule:
-    # 北京时间 11:15，工作日
-    - cron: "15 3 * * 1-5"
+    # 工作日北京时间 11:00、11:20
+    # UTC 03:00、03:20
+    - cron: "0,20 3 * * 1-5"
 
-    # 北京时间 13:40，工作日
-    - cron: "40 5 * * 1-5"
+    # 工作日北京时间 13:00-14:40，每20分钟
+    # UTC 05:00-06:40
+    - cron: "*/20 5-6 * * 1-5"
 
-    # 北京时间 14:20，工作日
-    - cron: "20 6 * * 1-5"
-
-    # 北京时间 14:45，工作日
-    - cron: "45 6 * * 1-5"
-
-    # 北京时间 14:53，工作日
-    - cron: "53 6 * * 1-5"
+    # 工作日北京时间 15:00，收盘附近结果
+    # UTC 07:00
+    - cron: "0 7 * * 1-5"
 
 permissions:
   contents: write
@@ -32,6 +29,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Show current time
+        run: |
+          echo "UTC time:"
+          date -u
+          echo "Beijing time:"
+          TZ='Asia/Shanghai' date
 
       - name: Set up Python
         uses: actions/setup-python@v5
