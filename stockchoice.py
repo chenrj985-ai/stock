@@ -11,6 +11,7 @@ A股自选股监控网页生成程序
 3. 主接口：腾讯行情接口
 4. 备用接口：新浪行情接口
 5. 每次运行生成唯一历史网页，避免缓存
+6. 股票池：用户最新候选池，已去重
 """
 
 import os
@@ -25,7 +26,7 @@ import pandas as pd
 
 
 # =========================
-# 1. 股票池：39只
+# 1. 股票池：最新候选池，已去重
 # =========================
 
 STOCK_LIST = [
@@ -68,6 +69,8 @@ STOCK_LIST = [
     ("688627", "精智达"),
     ("688668", "鼎通科技"),
     ("002130", "沃尔核材"),
+
+    # 新增半导体扩展池
     ("300604", "长川科技"),
     ("688200", "华峰测控"),
     ("688361", "中科飞测"),
@@ -82,7 +85,6 @@ STOCK_LIST = [
     ("002409", "雅克科技"),
     ("603005", "晶方科技"),
     ("300567", "精测电子"),
-    ("688012", "中微公司"),
     ("688249", "晶合集成"),
     ("688498", "源杰科技"),
     ("688213", "思特威"),
@@ -91,6 +93,7 @@ STOCK_LIST = [
     ("688019", "安集科技"),
 ]
 
+
 # =========================
 # 2. 输出目录
 # =========================
@@ -98,7 +101,6 @@ STOCK_LIST = [
 OUTPUT_DIR = "docs"
 HISTORY_DIR = os.path.join(OUTPUT_DIR, "history")
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "index.html")
-LATEST_URL_FILE = os.path.join(OUTPUT_DIR, "latest_url.txt")
 
 
 # =========================
@@ -118,6 +120,11 @@ def timestamp_str() -> str:
 
 
 def get_market_prefix(code: str) -> str:
+    """
+    A股市场前缀：
+    6、688、689 开头一般为上海 sh
+    0、2、3 开头一般为深圳 sz
+    """
     if code.startswith("6"):
         return "sh"
     return "sz"
@@ -160,6 +167,9 @@ def request_text(
     encoding: str = "gbk",
     timeout: int = 15
 ) -> str:
+    """
+    带重试的文本请求。
+    """
     last_error = None
 
     for i in range(5):
@@ -190,6 +200,13 @@ def request_text(
 # =========================
 
 def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
+    """
+    腾讯行情接口，主数据源。
+
+    尽量读取：
+    最新价、涨跌幅、涨跌额、今开、最高、最低、昨收、成交额、换手率、量比。
+    """
+
     symbols = []
     for code, _ in stock_list:
         symbols.append(get_market_prefix(code) + code)
@@ -225,6 +242,20 @@ def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
                 print(f"腾讯字段不足，跳过：{line[:100]}")
                 continue
 
+            # 腾讯常见字段：
+            # 1  名称
+            # 3  当前价
+            # 4  昨收
+            # 5  今开
+            # 30 行情时间
+            # 31 涨跌额
+            # 32 涨跌幅
+            # 33 最高
+            # 34 最低
+            # 37 成交额，通常单位为万元
+            # 38 换手率
+            # 49 附近有时为量比，不同时间/标的可能有差异
+
             name = safe_text(fields[1])
             price = safe_float(fields[3])
             pre_close = safe_float(fields[4])
@@ -243,6 +274,8 @@ def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
 
             turnover = safe_text(fields[38]) if len(fields) > 38 else ""
 
+            # 尝试提取量比。
+            # 腾讯不同字段版本位置可能略有差异，所以在 48-52 附近兜底。
             volume_ratio = ""
             for idx in [49, 48, 50, 51, 52]:
                 if len(fields) > idx:
@@ -291,6 +324,11 @@ def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
 # =========================
 
 def get_data_from_sina(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
+    """
+    新浪行情接口，备用。
+    新浪通常没有直接给出量比、换手率，所以这两列保留为空。
+    """
+
     symbols = []
     for code, _ in stock_list:
         symbols.append(get_market_prefix(code) + code)
@@ -376,6 +414,10 @@ def get_data_from_sina(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
 # =========================
 
 def get_market_data() -> pd.DataFrame:
+    """
+    优先腾讯，失败后新浪兜底。
+    """
+
     errors = []
 
     try:
@@ -557,7 +599,8 @@ def generate_html(df: pd.DataFrame, version_name: str) -> str:
     <h1>A股短线观察表</h1>
     <div class="time">
         页面生成时间：{update_time}<br>
-        唯一版本号：{version_name}
+        唯一版本号：{version_name}<br>
+        股票池数量：{len(STOCK_LIST)} 只
     </div>
 
     <div class="note">
@@ -657,6 +700,7 @@ def generate_error_html(error_message: str, version_name: str) -> str:
     <h1>A股短线观察表</h1>
     <p>页面生成时间：{update_time}</p>
     <p>唯一版本号：{version_name}</p>
+    <p>股票池数量：{len(STOCK_LIST)} 只</p>
 
     <h2 style="color:#d1242f;">本次行情获取失败</h2>
 
@@ -719,7 +763,8 @@ def main():
 
         print(f"最新网页已生成：{OUTPUT_FILE}")
         print(f"唯一历史网页已生成：{history_file}")
-        print(f"共生成股票数量：{len(watch_df)}")
+        print(f"股票池数量：{len(STOCK_LIST)}")
+        print(f"实际生成股票数量：{len(watch_df)}")
         print("使用数据源：")
         print(watch_df["数据源"].value_counts())
 
