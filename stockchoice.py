@@ -1,27 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-A股自选股监控网页生成程序（尾盘决策增强版）
+A股市场温度计 + 自选股尾盘决策程序
 
-文件名建议：stockchoice.py
+建议文件名：stockchoice.py
 
-输出：
-1. docs/index.html
-2. docs/history/时间戳.html
-3. docs/latest_url.txt
-4. docs/latest_manifest.json
-5. docs/latest_snapshot.csv
-
-本版增强：
-1. 保留原59只股票池
-2. 增加大盘指数：上证、深成指、创业板、科创50、中证1000
-3. 增加板块ETF：半导体、芯片、科创50、通信、AI、云计算、电子、创业板等
-4. 增加全市场情绪数据：上涨家数、下跌家数、涨停数、跌停数、涨超5%、跌超5%、成交额
-5. 增加行业板块涨幅排行：行业前10、行业后10
-6. 增加与上一次运行的比较：较上次涨跌幅变化、较上次价格变化、尾盘变化
-7. 增加尾盘决策区：是否适合新开仓、强方向、弱方向、尾盘转强/转弱个股
-8. 主行情接口：腾讯行情接口
-9. 股票备用接口：新浪行情接口
-10. 全市场情绪与行业排行：东方财富公开接口，失败不影响主页面生成
+设计思路：
+1. 不再强依赖东方财富“全A大列表/行业板块排行”，避免 GitHub Actions 超时、502。
+2. 核心数据全部使用已经验证较稳定的腾讯行情接口。
+3. 用“四层市场温度计”替代真实全A：
+   - 宽基指数：判断大盘环境
+   - ETF矩阵：判断资金方向
+   - 代表性股票池：近似观察全市场主要板块
+   - 自选股池：判断你的持仓和候选股
+4. 保留与上次运行比较，适合 14:20、14:30、14:40、14:50、14:55 尾盘观察。
+5. 输出 docs/index.html、docs/history/时间戳.html、docs/latest_url.txt、docs/latest_manifest.json、docs/latest_snapshot.csv。
 
 依赖：
 pip install pandas requests
@@ -48,16 +40,11 @@ HISTORY_DIR = os.path.join(OUTPUT_DIR, "history")
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "index.html")
 SNAPSHOT_FILE = os.path.join(OUTPUT_DIR, "latest_snapshot.csv")
 
-# YML里建议同时保留 SITE_BASE_URL 和 BASE_URL
 BASE_URL = os.getenv("BASE_URL", os.getenv("SITE_BASE_URL", "")).rstrip("/")
-
-# 如果你非常不想使用东方财富公开接口，把这里改成 False。
-# 注意：全市场上涨/下跌家数、行业板块排行需要这个接口。
-ENABLE_EASTMONEY = True
 
 
 # =========================
-# 1. 股票池
+# 1. 你的自选股池
 # =========================
 
 STOCK_LIST = [
@@ -124,27 +111,217 @@ STOCK_LIST = [
 ]
 
 
+# =========================
+# 2. 宽基指数
+# =========================
+
 INDEX_LIST = [
     ("000001", "上证指数", "sh"),
     ("399001", "深证成指", "sz"),
     ("399006", "创业板指", "sz"),
     ("000688", "科创50", "sh"),
     ("399852", "中证1000", "sz"),
+    ("000300", "沪深300", "sh"),
+    ("000905", "中证500", "sh"),
 ]
 
+
+# =========================
+# 3. ETF矩阵
+# =========================
+# 这些ETF只是板块代理，目的是稳定观察方向，不追求完全覆盖所有行业。
 
 ETF_LIST = [
+    ("510300", "沪深300ETF", "sh"),
+    ("510500", "中证500ETF", "sh"),
+    ("512100", "中证1000ETF", "sh"),
+    ("159915", "创业板ETF", "sz"),
+    ("588000", "科创50ETF", "sh"),
+
     ("512480", "半导体ETF", "sh"),
     ("159995", "芯片ETF", "sz"),
-    ("588000", "科创50ETF", "sh"),
-    ("515880", "通信ETF", "sh"),
-    ("515070", "人工智能ETF", "sh"),
-    ("516510", "云计算ETF", "sh"),
+    ("588200", "科创芯片ETF", "sh"),
     ("515260", "电子ETF", "sh"),
+    ("159732", "消费电子ETF", "sz"),
+
+    ("515880", "通信ETF", "sh"),
+    ("515050", "5GETF", "sh"),
+    ("515070", "人工智能ETF", "sh"),
     ("159819", "人工智能AIETF", "sz"),
-    ("159915", "创业板ETF", "sz"),
+    ("516510", "云计算ETF", "sh"),
+    ("512720", "计算机ETF", "sh"),
+    ("515400", "大数据ETF", "sh"),
+
+    ("512880", "证券ETF", "sh"),
+    ("512800", "银行ETF", "sh"),
+    ("510880", "红利ETF", "sh"),
+
+    ("515030", "新能源车ETF", "sh"),
+    ("515790", "光伏ETF", "sh"),
+    ("512010", "医药ETF", "sh"),
+    ("512690", "酒ETF", "sh"),
+    ("512400", "有色金属ETF", "sh"),
+    ("515220", "煤炭ETF", "sh"),
+    ("562500", "机器人ETF", "sh"),
 ]
 
+
+# =========================
+# 4. 代表性股票池
+# =========================
+# 这个池子不是全A，而是“全市场温度代理池”。
+# 目标：覆盖科技、金融、消费、医药、新能源、周期、军工等主要方向。
+# 每个方向选代表股，使用腾讯接口稳定抓取。
+
+REPRESENTATIVE_LIST = [
+    # 金融：银行/保险/券商
+    ("601398", "工商银行", "银行"),
+    ("601288", "农业银行", "银行"),
+    ("601939", "建设银行", "银行"),
+    ("600036", "招商银行", "银行"),
+    ("601166", "兴业银行", "银行"),
+    ("601318", "中国平安", "保险"),
+    ("601601", "中国太保", "保险"),
+    ("601628", "中国人寿", "保险"),
+    ("600030", "中信证券", "券商"),
+    ("600837", "海通证券", "券商"),
+    ("601688", "华泰证券", "券商"),
+    ("300059", "东方财富", "券商"),
+    ("000776", "广发证券", "券商"),
+
+    # 白酒/消费
+    ("600519", "贵州茅台", "白酒消费"),
+    ("000858", "五粮液", "白酒消费"),
+    ("000568", "泸州老窖", "白酒消费"),
+    ("600809", "山西汾酒", "白酒消费"),
+    ("603288", "海天味业", "食品消费"),
+    ("600887", "伊利股份", "食品消费"),
+    ("000333", "美的集团", "家电消费"),
+    ("000651", "格力电器", "家电消费"),
+    ("600690", "海尔智家", "家电消费"),
+
+    # 医药
+    ("600276", "恒瑞医药", "医药"),
+    ("300760", "迈瑞医疗", "医药"),
+    ("603259", "药明康德", "医药"),
+    ("300015", "爱尔眼科", "医药"),
+    ("300122", "智飞生物", "医药"),
+    ("000538", "云南白药", "医药"),
+    ("688271", "联影医疗", "医药"),
+
+    # 新能源/锂电/光伏
+    ("300750", "宁德时代", "新能源"),
+    ("002594", "比亚迪", "新能源车"),
+    ("601012", "隆基绿能", "光伏"),
+    ("300274", "阳光电源", "光伏储能"),
+    ("002459", "晶澳科技", "光伏"),
+    ("688223", "晶科能源", "光伏"),
+    ("002466", "天齐锂业", "锂电"),
+    ("002460", "赣锋锂业", "锂电"),
+    ("300014", "亿纬锂能", "锂电"),
+    ("002812", "恩捷股份", "锂电"),
+
+    # AI服务器/算力/计算机
+    ("601138", "工业富联", "AI服务器"),
+    ("000977", "浪潮信息", "AI服务器"),
+    ("603019", "中科曙光", "国产算力"),
+    ("688041", "海光信息", "国产算力"),
+    ("688256", "寒武纪", "国产AI芯片"),
+    ("300496", "中科创达", "软件"),
+    ("600570", "恒生电子", "软件"),
+    ("002230", "科大讯飞", "AI应用"),
+    ("360", "三六零", "AI应用"),
+    ("300033", "同花顺", "金融科技"),
+    ("300454", "深信服", "软件"),
+
+    # 光模块/CPO/通信
+    ("300308", "中际旭创", "光模块/CPO"),
+    ("300502", "新易盛", "光模块/CPO"),
+    ("300394", "天孚通信", "光模块/CPO"),
+    ("002281", "光迅科技", "光模块/CPO"),
+    ("688498", "源杰科技", "光模块/CPO"),
+    ("000063", "中兴通讯", "通信"),
+    ("600522", "中天科技", "通信"),
+    ("600487", "亨通光电", "通信"),
+
+    # 半导体设备/制造/设计/封测/材料
+    ("002371", "北方华创", "半导体设备"),
+    ("688012", "中微公司", "半导体设备"),
+    ("688072", "拓荆科技", "半导体设备"),
+    ("688120", "华海清科", "半导体设备"),
+    ("688037", "芯源微", "半导体设备"),
+    ("300604", "长川科技", "半导体设备"),
+    ("688200", "华峰测控", "半导体检测"),
+    ("688361", "中科飞测", "半导体检测"),
+    ("688981", "中芯国际", "晶圆制造"),
+    ("688347", "华虹公司", "晶圆制造"),
+    ("688008", "澜起科技", "存储/接口芯片"),
+    ("603986", "兆易创新", "存储芯片"),
+    ("688525", "佰维存储", "存储芯片"),
+    ("688126", "沪硅产业", "半导体材料"),
+    ("688019", "安集科技", "半导体材料"),
+    ("300666", "江丰电子", "半导体材料"),
+    ("600584", "长电科技", "封测"),
+    ("002156", "通富微电", "封测"),
+
+    # PCB/电子
+    ("002916", "深南电路", "PCB"),
+    ("300476", "胜宏科技", "PCB"),
+    ("002463", "沪电股份", "PCB"),
+    ("600183", "生益科技", "覆铜板"),
+    ("002384", "东山精密", "PCB/消费电子"),
+    ("603228", "景旺电子", "PCB"),
+    ("002436", "兴森科技", "PCB"),
+    ("002475", "立讯精密", "消费电子"),
+    ("000725", "京东方A", "面板"),
+    ("002241", "歌尔股份", "消费电子"),
+    ("300433", "蓝思科技", "消费电子"),
+
+    # 机器人/智能制造/军工
+    ("300124", "汇川技术", "工业自动化"),
+    ("002747", "埃斯顿", "机器人"),
+    ("002236", "大华股份", "安防AI"),
+    ("002415", "海康威视", "安防AI"),
+    ("600893", "航发动力", "军工"),
+    ("600760", "中航沈飞", "军工"),
+    ("000768", "中航西飞", "军工"),
+    ("002179", "中航光电", "军工电子"),
+    ("300661", "圣邦股份", "模拟芯片"),
+
+    # 周期资源/地产/基建
+    ("601899", "紫金矿业", "有色"),
+    ("600547", "山东黄金", "黄金"),
+    ("601600", "中国铝业", "有色"),
+    ("603993", "洛阳钼业", "有色"),
+    ("600028", "中国石化", "石油"),
+    ("601857", "中国石油", "石油"),
+    ("601088", "中国神华", "煤炭"),
+    ("601225", "陕西煤业", "煤炭"),
+    ("600048", "保利发展", "地产"),
+    ("000002", "万科A", "地产"),
+    ("601668", "中国建筑", "基建"),
+    ("601390", "中国中铁", "基建"),
+    ("601186", "中国铁建", "基建"),
+]
+
+
+# 去重代表池，保留首次出现
+def dedupe_rep_list(items: List[Tuple[str, str, str]]) -> List[Tuple[str, str, str]]:
+    seen = set()
+    out = []
+    for code, name, sector in items:
+        if code not in seen:
+            out.append((code, name, sector))
+            seen.add(code)
+    return out
+
+
+REPRESENTATIVE_LIST = dedupe_rep_list(REPRESENTATIVE_LIST)
+
+
+# =========================
+# 5. 自选股板块映射
+# =========================
 
 STOCK_SECTOR_MAP = {
     "002371": "半导体设备", "688012": "半导体设备", "688072": "半导体设备",
@@ -175,7 +352,7 @@ STOCK_SECTOR_MAP = {
 
 
 # =========================
-# 2. 工具函数
+# 6. 工具函数
 # =========================
 
 def now_dt() -> datetime.datetime:
@@ -232,10 +409,10 @@ def format_amount(x) -> str:
 
 def request_text(url: str, headers: Dict[str, str], encoding: str = "gbk", timeout: int = 15) -> str:
     last_error = None
-    for i in range(5):
+    for i in range(3):
         try:
             print(f"请求第 {i + 1} 次：{url[:120]}...")
-            time.sleep(random.uniform(0.8, 2.2))
+            time.sleep(random.uniform(0.8, 1.8))
             resp = requests.get(url, headers=headers, timeout=timeout)
             resp.raise_for_status()
             resp.encoding = encoding
@@ -246,31 +423,16 @@ def request_text(url: str, headers: Dict[str, str], encoding: str = "gbk", timeo
         except Exception as e:
             last_error = e
             print(f"请求失败：{repr(e)}")
-            time.sleep(3 + i * 3)
-    raise RuntimeError(f"连续 5 次请求失败：{repr(last_error)}")
-
-
-def request_json(url: str, headers: Dict[str, str], timeout: int = 6, max_retries: int = 1) -> Dict:
-    last_error = None
-    for i in range(max_retries):
-        try:
-            print(f"请求JSON第 {i + 1} 次：{url[:120]}...")
-            time.sleep(random.uniform(0.3, 0.8))
-            resp = requests.get(url, headers=headers, timeout=timeout)
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as e:
-            last_error = e
-            print(f"请求JSON失败：{repr(e)}")
-            time.sleep(1 + i)
-    raise RuntimeError(f"连续 {max_retries} 次JSON请求失败：{repr(last_error)}")
+            time.sleep(2 + i * 2)
+    raise RuntimeError(f"连续 3 次请求失败：{repr(last_error)}")
 
 
 # =========================
-# 3. 腾讯行情
+# 7. 腾讯行情接口
 # =========================
 
-def parse_tencent_text(text: str, name_map: Dict[str, str], data_type: str) -> pd.DataFrame:
+def parse_tencent_text(text: str, name_map: Dict[str, str], data_type: str, sector_map: Dict[str, str] = None) -> pd.DataFrame:
+    sector_map = sector_map or {}
     rows = []
 
     for raw_line in text.split(";"):
@@ -326,6 +488,7 @@ def parse_tencent_text(text: str, name_map: Dict[str, str], data_type: str) -> p
                 "代码": code,
                 "名称": name_map.get(code, name),
                 "类型": data_type,
+                "所属板块": sector_map.get(code, ""),
                 "最新价": round(price, 2),
                 "涨跌幅": round(pct, 2),
                 "涨跌额": round(change, 2),
@@ -348,305 +511,66 @@ def parse_tencent_text(text: str, name_map: Dict[str, str], data_type: str) -> p
     return pd.DataFrame(rows)
 
 
-def get_data_from_tencent(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
-    symbols = [get_market_prefix(code) + code for code, _ in stock_list]
-    url = "https://qt.gtimg.cn/q=" + ",".join(symbols)
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://gu.qq.com/",
-        "Accept": "*/*",
-        "Connection": "close",
-    }
-    text = request_text(url, headers=headers, encoding="gbk", timeout=20)
-    name_map = {code: name for code, name in stock_list}
-    df = parse_tencent_text(text, name_map, "股票")
-    if df.empty:
-        raise RuntimeError("腾讯接口没有解析到有效股票数据")
-    return df
-
-
-def get_data_from_tencent_items(items: List[Tuple[str, str, str]], data_type: str) -> pd.DataFrame:
-    symbols = [get_market_prefix(code, market) + code for code, _, market in items]
-    url = "https://qt.gtimg.cn/q=" + ",".join(symbols)
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://gu.qq.com/",
-        "Accept": "*/*",
-        "Connection": "close",
-    }
-    text = request_text(url, headers=headers, encoding="gbk", timeout=20)
-    name_map = {code: name for code, name, _ in items}
-    return parse_tencent_text(text, name_map, data_type)
-
-
-# =========================
-# 4. 新浪股票备用
-# =========================
-
-def get_data_from_sina(stock_list: List[Tuple[str, str]]) -> pd.DataFrame:
-    symbols = [get_market_prefix(code) + code for code, _ in stock_list]
-    url = "https://hq.sinajs.cn/list=" + ",".join(symbols)
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://finance.sina.com.cn/",
-        "Accept": "*/*",
-        "Connection": "close",
-    }
-    text = request_text(url, headers=headers, encoding="gbk", timeout=20)
-
-    rows = []
-    name_map = {code: name for code, name in stock_list}
-
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or '="' not in line:
-            continue
-
-        try:
-            left, right = line.split('="', 1)
-            symbol = left.split("_")[-1]
-            code = symbol[-6:]
-            content = right.rstrip('";')
-            fields = content.split(",")
-
-            if len(fields) < 32:
-                continue
-
-            name = fields[0]
-            open_price = safe_float(fields[1])
-            pre_close = safe_float(fields[2])
-            price = safe_float(fields[3])
-            high = safe_float(fields[4])
-            low = safe_float(fields[5])
-            amount = safe_float(fields[9])
-            date = fields[30]
-            quote_time = fields[31]
-
-            if price <= 0 and pre_close > 0:
-                price = pre_close
-
-            change = price - pre_close if pre_close > 0 else 0
-            pct = change / pre_close * 100 if pre_close > 0 else 0
-            distance_high_pct = round((price - high) / high * 100, 2) if high > 0 else 0
-
-            rows.append({
-                "代码": code,
-                "名称": name_map.get(code, name),
-                "类型": "股票",
-                "最新价": round(price, 2),
-                "涨跌幅": round(pct, 2),
-                "涨跌额": round(change, 2),
-                "今开": round(open_price, 2),
-                "最高": round(high, 2),
-                "最低": round(low, 2),
-                "昨收": round(pre_close, 2),
-                "距离高点%": distance_high_pct,
-                "量比": "",
-                "换手率": "",
-                "成交额": amount,
-                "行情时间": f"{date} {quote_time}",
-                "数据源": "新浪备用",
-            })
-
-        except Exception as e:
-            print(f"解析新浪行情失败：{repr(e)}")
-
-    df = pd.DataFrame(rows)
-    if df.empty:
-        raise RuntimeError("新浪接口没有解析到有效股票数据")
-    return df
-
-
-# =========================
-# 5. 东方财富：全市场情绪和行业板块
-# =========================
-
-def eastmoney_headers() -> Dict[str, str]:
-    return {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": "https://quote.eastmoney.com/",
-        "Accept": "application/json,text/plain,*/*",
-        "Connection": "close",
-    }
-
-
-def get_full_market_breadth() -> Dict[str, str]:
+def fetch_tencent_by_items(items, data_type: str, has_market: bool = False, has_sector: bool = False) -> pd.DataFrame:
     """
-    获取全A市场情绪。
-    使用东方财富公开行情接口。
-    失败则返回无数据，不影响主程序。
+    通用腾讯接口。
+    items:
+    - has_market=True: [(code, name, market)]
+    - has_sector=True: [(code, name, sector)]
+    - default: [(code, name)]
     """
-    if not ENABLE_EASTMONEY:
-        return {"数据源": "未启用"}
+    symbols = []
+    name_map = {}
+    sector_map = {}
 
-    try:
-        url = (
-            "https://push2.eastmoney.com/api/qt/clist/get?"
-            "pn=1&pz=6000&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281"
-            "&fltt=2&invt=2&fid=f3"
-            "&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
-            "&fields=f12,f14,f2,f3,f4,f5,f6,f15,f16,f17,f18"
-        )
-        data = request_json(url, eastmoney_headers(), timeout=6, max_retries=1)
-        diff = data.get("data", {}).get("diff", []) or []
-
-        pcts = []
-        amounts = []
-        for item in diff:
-            pct = safe_float(item.get("f3"), None)
-            amount = safe_float(item.get("f6"), 0)
-            if pct is None:
-                continue
-            pcts.append(pct)
-            amounts.append(amount)
-
-        if not pcts:
-            raise RuntimeError("全市场数据为空")
-
-        up = sum(1 for x in pcts if x > 0)
-        down = sum(1 for x in pcts if x < 0)
-        flat = sum(1 for x in pcts if x == 0)
-        limit_up = sum(1 for x in pcts if x >= 9.5)
-        limit_down = sum(1 for x in pcts if x <= -9.5)
-        up5 = sum(1 for x in pcts if x >= 5)
-        down5 = sum(1 for x in pcts if x <= -5)
-        total_amount = sum(amounts)
-
-        if up > down * 1.3 and limit_up >= 40:
-            mood = "进攻"
-        elif up > down:
-            mood = "偏暖"
-        elif down > up * 1.3 or down5 >= 200:
-            mood = "防守"
+    for item in items:
+        if has_market:
+            code, name, market = item
+            symbols.append(get_market_prefix(code, market) + code)
+        elif has_sector:
+            code, name, sector = item
+            symbols.append(get_market_prefix(code) + code)
+            sector_map[code] = sector
         else:
-            mood = "分化"
+            code, name = item
+            symbols.append(get_market_prefix(code) + code)
 
-        return {
-            "全A数量": str(len(pcts)),
-            "全A上涨家数": str(up),
-            "全A下跌家数": str(down),
-            "全A平盘家数": str(flat),
-            "涨停附近家数": str(limit_up),
-            "跌停附近家数": str(limit_down),
-            "涨超5%家数": str(up5),
-            "跌超5%家数": str(down5),
-            "全A成交额": format_amount(total_amount),
-            "全市场情绪": mood,
-            "数据源": "东方财富公开接口",
-        }
+        name_map[code] = name
 
-    except Exception as e:
-        print("全市场情绪获取失败：", repr(e))
-        return {
-            "全A数量": "无数据",
-            "全A上涨家数": "无数据",
-            "全A下跌家数": "无数据",
-            "全A平盘家数": "无数据",
-            "涨停附近家数": "无数据",
-            "跌停附近家数": "无数据",
-            "涨超5%家数": "无数据",
-            "跌超5%家数": "无数据",
-            "全A成交额": "无数据",
-            "全市场情绪": "无数据",
-            "数据源": "获取失败",
-        }
+    url = "https://qt.gtimg.cn/q=" + ",".join(symbols)
+
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": "https://gu.qq.com/",
+        "Accept": "*/*",
+        "Connection": "close",
+    }
+
+    text = request_text(url, headers=headers, encoding="gbk", timeout=20)
+    df = parse_tencent_text(text, name_map, data_type, sector_map)
+    if df.empty:
+        raise RuntimeError(f"腾讯接口没有解析到有效{data_type}数据")
+    return df
 
 
-def get_industry_board_rank() -> pd.DataFrame:
-    """
-    获取行业板块涨幅排行。
-    东方财富行业板块：fs=m:90+t:2
-    """
-    if not ENABLE_EASTMONEY:
-        return pd.DataFrame()
-
-    try:
-        url = (
-            "https://push2.eastmoney.com/api/qt/clist/get?"
-            "pn=1&pz=80&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281"
-            "&fltt=2&invt=2&fid=f3"
-            "&fs=m:90+t:2"
-            "&fields=f12,f14,f2,f3,f4,f8,f20,f62,f128,f136,f140"
-        )
-        data = request_json(url, eastmoney_headers(), timeout=6, max_retries=1)
-        diff = data.get("data", {}).get("diff", []) or []
-
-        rows = []
-        for item in diff:
-            rows.append({
-                "板块代码": safe_text(item.get("f12")),
-                "板块名称": safe_text(item.get("f14")),
-                "最新价": safe_float(item.get("f2")),
-                "涨跌幅": safe_float(item.get("f3")),
-                "涨跌额": safe_float(item.get("f4")),
-                "换手率": safe_float(item.get("f8")),
-                "成交额": safe_float(item.get("f20")),
-                "主力净流入": safe_float(item.get("f62")),
-                "领涨股": safe_text(item.get("f128")),
-                "领涨股涨幅": safe_float(item.get("f136")),
-                "领涨股代码": safe_text(item.get("f140")),
-            })
-
-        return pd.DataFrame(rows)
-
-    except Exception as e:
-        print("行业板块排行获取失败：", repr(e))
-        return pd.DataFrame()
-
-
-# =========================
-# 6. 行情获取
-# =========================
-
-def get_market_data() -> pd.DataFrame:
-    errors = []
-    try:
-        print("开始使用腾讯接口获取股票行情...")
-        df = get_data_from_tencent(STOCK_LIST)
-        print(f"腾讯接口成功，获取 {len(df)} 只股票。")
-        return df
-    except Exception as e:
-        errors.append("腾讯接口失败：" + repr(e))
-        print(errors[-1])
-        print(traceback.format_exc())
-
-    try:
-        print("开始使用新浪备用接口获取股票行情...")
-        df = get_data_from_sina(STOCK_LIST)
-        print(f"新浪备用接口成功，获取 {len(df)} 只股票。")
-        return df
-    except Exception as e:
-        errors.append("新浪备用接口失败：" + repr(e))
-        print(errors[-1])
-        print(traceback.format_exc())
-
-    raise RuntimeError("\n".join(errors))
+def get_watch_data() -> pd.DataFrame:
+    return fetch_tencent_by_items(STOCK_LIST, "自选股")
 
 
 def get_index_data() -> pd.DataFrame:
-    try:
-        print("开始获取指数数据...")
-        df = get_data_from_tencent_items(INDEX_LIST, "指数")
-        print(f"指数数据获取成功：{len(df)} 条。")
-        return df
-    except Exception as e:
-        print("指数数据获取失败：", repr(e))
-        return pd.DataFrame()
+    return fetch_tencent_by_items(INDEX_LIST, "指数", has_market=True)
 
 
 def get_etf_data() -> pd.DataFrame:
-    try:
-        print("开始获取ETF数据...")
-        df = get_data_from_tencent_items(ETF_LIST, "ETF")
-        print(f"ETF数据获取成功：{len(df)} 条。")
-        return df
-    except Exception as e:
-        print("ETF数据获取失败：", repr(e))
-        return pd.DataFrame()
+    return fetch_tencent_by_items(ETF_LIST, "ETF", has_market=True)
+
+
+def get_representative_data() -> pd.DataFrame:
+    return fetch_tencent_by_items(REPRESENTATIVE_LIST, "代表池", has_sector=True)
 
 
 # =========================
-# 7. 增强计算
+# 8. 快照对比
 # =========================
 
 def load_previous_snapshot() -> pd.DataFrame:
@@ -661,7 +585,6 @@ def load_previous_snapshot() -> pd.DataFrame:
 
 def add_previous_compare(df: pd.DataFrame, prev_df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-
     df["较上次价格变化"] = 0.0
     df["较上次涨跌幅变化"] = 0.0
     df["尾盘变化"] = "首次/无对比"
@@ -680,7 +603,6 @@ def add_previous_compare(df: pd.DataFrame, prev_df: pd.DataFrame) -> pd.DataFram
         code = str(row.get("代码", ""))
         price = safe_float(row.get("最新价", 0))
         pct = safe_float(row.get("涨跌幅", 0))
-
         old_price = prev_map_price.get(code, None)
         old_pct = prev_map_pct.get(code, None)
 
@@ -692,7 +614,6 @@ def add_previous_compare(df: pd.DataFrame, prev_df: pd.DataFrame) -> pd.DataFram
 
         price_delta = round(price - old_price, 2)
         pct_delta = round(pct - old_pct, 2)
-
         price_changes.append(price_delta)
         pct_changes.append(pct_delta)
 
@@ -710,32 +631,142 @@ def add_previous_compare(df: pd.DataFrame, prev_df: pd.DataFrame) -> pd.DataFram
     df["较上次价格变化"] = price_changes
     df["较上次涨跌幅变化"] = pct_changes
     df["尾盘变化"] = tail_changes
-
     return df
 
 
-def save_snapshot(df: pd.DataFrame):
+def save_snapshot(watch_df: pd.DataFrame, representative_df: pd.DataFrame):
     try:
-        keep_cols = ["代码", "名称", "最新价", "涨跌幅", "最高", "最低", "成交额", "行情时间"]
-        tmp = df[[c for c in keep_cols if c in df.columns]].copy()
+        keep_cols = ["代码", "名称", "最新价", "涨跌幅", "最高", "最低", "成交额", "行情时间", "类型", "所属板块"]
+        combined = pd.concat([watch_df, representative_df], ignore_index=True)
+        tmp = combined[[c for c in keep_cols if c in combined.columns]].copy()
         tmp.to_csv(SNAPSHOT_FILE, index=False, encoding="utf-8-sig")
     except Exception as e:
         print("保存快照失败：", repr(e))
 
 
-def add_stock_extra_columns(watch_df: pd.DataFrame) -> pd.DataFrame:
+# =========================
+# 9. 温度计计算
+# =========================
+
+def calc_breadth(df: pd.DataFrame, label: str) -> Dict[str, str]:
+    if df is None or df.empty:
+        return {
+            f"{label}数量": "无数据",
+            f"{label}上涨": "无数据",
+            f"{label}下跌": "无数据",
+            f"{label}平盘": "无数据",
+            f"{label}涨超5%": "无数据",
+            f"{label}跌超5%": "无数据",
+            f"{label}涨停附近": "无数据",
+            f"{label}跌停附近": "无数据",
+            f"{label}成交额": "无数据",
+        }
+
+    pct = df["涨跌幅"].apply(safe_float)
+    amount = df["成交额"].apply(safe_float).sum() if "成交额" in df.columns else 0
+
+    return {
+        f"{label}数量": str(len(df)),
+        f"{label}上涨": str(int((pct > 0).sum())),
+        f"{label}下跌": str(int((pct < 0).sum())),
+        f"{label}平盘": str(int((pct == 0).sum())),
+        f"{label}涨超5%": str(int((pct >= 5).sum())),
+        f"{label}跌超5%": str(int((pct <= -5).sum())),
+        f"{label}涨停附近": str(int((pct >= 9.5).sum())),
+        f"{label}跌停附近": str(int((pct <= -9.5).sum())),
+        f"{label}成交额": format_amount(amount),
+    }
+
+
+def score_from_pct_series(pct: pd.Series) -> float:
+    if pct is None or len(pct) == 0:
+        return 50
+
+    avg_pct = pct.mean()
+    up_ratio = (pct > 0).mean()
+    up5_ratio = (pct >= 5).mean()
+    down5_ratio = (pct <= -5).mean()
+
+    score = 50
+    score += avg_pct * 8
+    score += (up_ratio - 0.5) * 50
+    score += up5_ratio * 30
+    score -= down5_ratio * 35
+
+    return max(0, min(100, round(score, 1)))
+
+
+def make_temperature(index_df: pd.DataFrame, etf_df: pd.DataFrame, representative_df: pd.DataFrame, watch_df: pd.DataFrame) -> Dict[str, str]:
+    index_score = score_from_pct_series(index_df["涨跌幅"].apply(safe_float)) if not index_df.empty else 50
+    etf_score = score_from_pct_series(etf_df["涨跌幅"].apply(safe_float)) if not etf_df.empty else 50
+    rep_score = score_from_pct_series(representative_df["涨跌幅"].apply(safe_float)) if not representative_df.empty else 50
+    watch_score = score_from_pct_series(watch_df["涨跌幅"].apply(safe_float)) if not watch_df.empty else 50
+
+    # 尾盘变化修正：只有非首次运行时明显有效
+    tail_bonus = 0
+    if "较上次涨跌幅变化" in watch_df.columns:
+        delta = watch_df["较上次涨跌幅变化"].apply(safe_float)
+        strong = (delta >= 0.8).sum()
+        weak = (delta <= -0.8).sum()
+        tail_bonus = (strong - weak) * 0.8
+
+    total_score = round(index_score * 0.30 + etf_score * 0.25 + rep_score * 0.25 + watch_score * 0.20 + tail_bonus, 1)
+    total_score = max(0, min(100, total_score))
+
+    if total_score >= 75:
+        conclusion = "可小仓进攻"
+    elif total_score >= 60:
+        conclusion = "结构行情，只做最强方向"
+    elif total_score >= 45:
+        conclusion = "分化震荡，少动"
+    else:
+        conclusion = "防守优先，不开新仓"
+
+    return {
+        "指数温度分": str(index_score),
+        "ETF温度分": str(etf_score),
+        "代表池温度分": str(rep_score),
+        "自选池温度分": str(watch_score),
+        "综合温度分": str(total_score),
+        "综合结论": conclusion,
+    }
+
+
+def sector_strength(df: pd.DataFrame, sector_col: str = "所属板块", top_n: int = 8):
+    if df is None or df.empty or sector_col not in df.columns:
+        return pd.DataFrame()
+
+    grouped = df.groupby(sector_col).agg(
+        股票数=("代码", "count"),
+        平均涨跌幅=("涨跌幅", lambda x: round(pd.Series(x).apply(safe_float).mean(), 2)),
+        上涨数=("涨跌幅", lambda x: int((pd.Series(x).apply(safe_float) > 0).sum())),
+        涨超5数=("涨跌幅", lambda x: int((pd.Series(x).apply(safe_float) >= 5).sum())),
+        跌超5数=("涨跌幅", lambda x: int((pd.Series(x).apply(safe_float) <= -5).sum())),
+        成交额=("成交额", lambda x: sum(pd.Series(x).apply(safe_float))),
+    ).reset_index()
+
+    grouped["成交额"] = grouped["成交额"].round(0)
+    return grouped.sort_values("平均涨跌幅", ascending=False)
+
+
+def etf_matrix_summary(etf_df: pd.DataFrame) -> Dict[str, str]:
+    if etf_df is None or etf_df.empty:
+        return {"ETF强方向": "无数据", "ETF弱方向": "无数据"}
+
+    top = etf_df.sort_values("涨跌幅", ascending=False).head(5)
+    bottom = etf_df.sort_values("涨跌幅", ascending=True).head(5)
+
+    return {
+        "ETF强方向": "；".join([f'{r["名称"]}{r["涨跌幅"]}%' for _, r in top.iterrows()]),
+        "ETF弱方向": "；".join([f'{r["名称"]}{r["涨跌幅"]}%' for _, r in bottom.iterrows()]),
+    }
+
+
+def add_stock_scores(watch_df: pd.DataFrame) -> pd.DataFrame:
     df = watch_df.copy()
 
-    if "距离高点%" not in df.columns:
-        def calc_high_gap(row):
-            price = safe_float(row.get("最新价", 0))
-            high = safe_float(row.get("最高", 0))
-            if high <= 0:
-                return 0
-            return round((price - high) / high * 100, 2)
-        df["距离高点%"] = df.apply(calc_high_gap, axis=1)
-
-    df["所属板块"] = df["代码"].map(STOCK_SECTOR_MAP).fillna("其他")
+    df["所属板块"] = df["代码"].map(STOCK_SECTOR_MAP).fillna(df.get("所属板块", "其他"))
+    df["所属板块"] = df["所属板块"].replace("", "其他")
 
     def calc_risk_score(row):
         pct = safe_float(row.get("涨跌幅", 0))
@@ -781,6 +812,33 @@ def add_stock_extra_columns(watch_df: pd.DataFrame) -> pd.DataFrame:
 
     df["风险评分"] = df.apply(calc_risk_score, axis=1)
 
+    def make_signal(row):
+        pct = safe_float(row.get("涨跌幅", 0))
+        gap = safe_float(row.get("距离高点%", 0))
+        pct_delta = safe_float(row.get("较上次涨跌幅变化", 0))
+
+        if pct_delta <= -1:
+            return "尾盘转弱，谨慎"
+        if pct >= 7:
+            return "涨幅过大，谨慎追高"
+        if 4 <= pct < 7:
+            if gap < -3:
+                return "涨幅较大但冲高回落，谨慎"
+            return "强势明显，只适合小仓观察"
+        if 2 <= pct < 4:
+            if gap < -3:
+                return "冲高回落，先观察"
+            return "涨幅较好，继续观察"
+        if 0 <= pct < 2:
+            if gap < -3:
+                return "冲高回落，不急买"
+            return "走势温和，可继续盯"
+        if -2 <= pct < 0:
+            return "小幅回调，等企稳"
+        if -4 <= pct < -2:
+            return "调整偏弱，暂缓"
+        return "跌幅较大，先不急接"
+
     def make_tail_signal(row):
         score = safe_float(row.get("风险评分", 0))
         pct = safe_float(row.get("涨跌幅", 0))
@@ -801,260 +859,81 @@ def add_stock_extra_columns(watch_df: pd.DataFrame) -> pd.DataFrame:
             return "只观察，等确认"
         return "暂不操作"
 
+    def make_level(row):
+        pct = safe_float(row.get("涨跌幅", 0))
+        gap = safe_float(row.get("距离高点%", 0))
+        score = safe_float(row.get("风险评分", 0))
+        pct_delta = safe_float(row.get("较上次涨跌幅变化", 0))
+
+        if pct_delta <= -1 or gap < -4:
+            return "C"
+        if score >= 4:
+            return "A"
+        if score >= 1:
+            return "B"
+        if -2 <= pct < 1.5:
+            return "B"
+        return "C"
+
+    df["操作提示"] = df.apply(make_signal, axis=1)
     df["尾盘提示"] = df.apply(make_tail_signal, axis=1)
+    df["级别"] = df.apply(make_level, axis=1)
 
     return df
 
 
-def make_signal(row) -> str:
-    pct = safe_float(row.get("涨跌幅", 0))
-    distance_high = safe_float(row.get("距离高点%", 0))
-    pct_delta = safe_float(row.get("较上次涨跌幅变化", 0))
-
-    if pct_delta <= -1:
-        return "尾盘转弱，谨慎"
-    if pct >= 7:
-        return "涨幅过大，谨慎追高"
-    elif 4 <= pct < 7:
-        if distance_high < -3:
-            return "涨幅较大但冲高回落，谨慎"
-        return "强势明显，只适合小仓观察"
-    elif 2 <= pct < 4:
-        if distance_high < -3:
-            return "冲高回落，先观察"
-        return "涨幅较好，继续观察"
-    elif 0 <= pct < 2:
-        if distance_high < -3:
-            return "冲高回落，不急买"
-        return "走势温和，可继续盯"
-    elif -2 <= pct < 0:
-        return "小幅回调，等企稳"
-    elif -4 <= pct < -2:
-        return "调整偏弱，暂缓"
-    else:
-        return "跌幅较大，先不急接"
-
-
-def make_level(row) -> str:
-    pct = safe_float(row.get("涨跌幅", 0))
-    distance_high = safe_float(row.get("距离高点%", 0))
-    score = safe_float(row.get("风险评分", 0))
-    pct_delta = safe_float(row.get("较上次涨跌幅变化", 0))
-
-    if pct_delta <= -1 or distance_high < -4:
-        return "C"
-    if score >= 4:
-        return "A"
-    if score >= 1:
-        return "B"
-    if -2 <= pct < 1.5:
-        return "B"
-    return "C"
-
-
-
-def make_breadth_fallback(watch_df: pd.DataFrame, index_df: pd.DataFrame, etf_df: pd.DataFrame, old_breadth: Dict[str, str]) -> Dict[str, str]:
-    """
-    当东方财富全市场接口失败时，使用：
-    1. 自选股池涨跌情况
-    2. 指数涨跌情况
-    3. ETF涨跌情况
-    生成一个“估算版市场情绪”。
-
-    注意：这不是全A真实涨跌家数，只是为了页面不空白，并给尾盘判断一个备用参考。
-    """
-    result = dict(old_breadth or {})
-
-    if watch_df is None or watch_df.empty:
-        result.update({
-            "全A数量": "无数据",
-            "全A上涨家数": "无数据",
-            "全A下跌家数": "无数据",
-            "全A平盘家数": "无数据",
-            "涨停附近家数": "无数据",
-            "跌停附近家数": "无数据",
-            "涨超5%家数": "无数据",
-            "跌超5%家数": "无数据",
-            "全A成交额": "无数据",
-            "全市场情绪": "无数据",
-            "数据源": "东方财富失败，备用估算也无数据",
-        })
-        return result
-
-    pct = watch_df["涨跌幅"].apply(safe_float)
-    up = int((pct > 0).sum())
-    down = int((pct < 0).sum())
-    flat = int((pct == 0).sum())
-    limit_up = int((pct >= 9.5).sum())
-    limit_down = int((pct <= -9.5).sum())
-    up5 = int((pct >= 5).sum())
-    down5 = int((pct <= -5).sum())
-    total_amount = watch_df["成交额"].apply(safe_float).sum() if "成交额" in watch_df.columns else 0
-
-    index_avg = 0.0
-    index_weak = 0
-    if index_df is not None and not index_df.empty:
-        index_pct = index_df["涨跌幅"].apply(safe_float)
-        index_avg = float(index_pct.mean())
-        index_weak = int((index_pct < 0).sum())
-
-    etf_avg = 0.0
-    if etf_df is not None and not etf_df.empty:
-        etf_avg = float(etf_df["涨跌幅"].apply(safe_float).mean())
-
-    # 备用情绪判断：不是全市场真实值，只是综合估算
-    if index_weak >= 4 or down > up * 1.2 or down5 >= 5:
-        mood = "防守"
-    elif up > down and up5 >= 5 and index_avg >= 0:
-        mood = "偏暖"
-    elif up > down and etf_avg >= 0:
-        mood = "结构性偏暖"
-    else:
-        mood = "分化"
-
-    result.update({
-        "全A数量": f"无真实数据；股票池{len(watch_df)}只",
-        "全A上涨家数": f"无真实数据；股票池上涨{up}",
-        "全A下跌家数": f"无真实数据；股票池下跌{down}",
-        "全A平盘家数": f"无真实数据；股票池平盘{flat}",
-        "涨停附近家数": f"无真实数据；股票池{limit_up}",
-        "跌停附近家数": f"无真实数据；股票池{limit_down}",
-        "涨超5%家数": f"无真实数据；股票池{up5}",
-        "跌超5%家数": f"无真实数据；股票池{down5}",
-        "全A成交额": f"无真实数据；股票池成交额{format_amount(total_amount)}",
-        "全市场情绪": mood,
-        "数据源": "东方财富失败，当前为股票池+指数+ETF备用估算",
-    })
-    return result
-
-def make_market_summary(
-    index_df: pd.DataFrame,
+def make_decision_panel(
+    temp: Dict[str, str],
     etf_df: pd.DataFrame,
+    rep_sector_df: pd.DataFrame,
+    watch_sector_df: pd.DataFrame,
     watch_df: pd.DataFrame,
-    breadth: Dict[str, str],
 ) -> Dict[str, str]:
-    summary: Dict[str, str] = {}
+    panel = {}
 
-    if index_df is not None and not index_df.empty:
-        index_pct = index_df["涨跌幅"].apply(safe_float)
-        summary["指数平均涨跌幅"] = f"{index_pct.mean():.2f}%"
-        summary["指数转弱数量"] = str(int((index_pct < 0).sum()))
-        summary["指数偏强数量"] = str(int((index_pct > 0.5).sum()))
+    panel["今日是否适合新开仓"] = temp.get("综合结论", "无数据")
+    panel["综合温度分"] = temp.get("综合温度分", "无数据")
+
+    panel.update(etf_matrix_summary(etf_df))
+
+    if rep_sector_df is not None and not rep_sector_df.empty:
+        strong = rep_sector_df.head(5)
+        weak = rep_sector_df.tail(5).sort_values("平均涨跌幅", ascending=True)
+        panel["代表池强方向"] = "；".join([f'{r["所属板块"]}{r["平均涨跌幅"]}%' for _, r in strong.iterrows()])
+        panel["代表池弱方向"] = "；".join([f'{r["所属板块"]}{r["平均涨跌幅"]}%' for _, r in weak.iterrows()])
     else:
-        summary["指数平均涨跌幅"] = "无数据"
-        summary["指数转弱数量"] = "无数据"
-        summary["指数偏强数量"] = "无数据"
+        panel["代表池强方向"] = "无数据"
+        panel["代表池弱方向"] = "无数据"
 
-    if etf_df is not None and not etf_df.empty:
-        top_etf = etf_df.sort_values("涨跌幅", ascending=False).head(3)
-        weak_etf = etf_df.sort_values("涨跌幅", ascending=True).head(3)
-        summary["最强ETF"] = "；".join([f'{r["名称"]}{r["涨跌幅"]}%' for _, r in top_etf.iterrows()])
-        summary["最弱ETF"] = "；".join([f'{r["名称"]}{r["涨跌幅"]}%' for _, r in weak_etf.iterrows()])
+    if watch_sector_df is not None and not watch_sector_df.empty:
+        strong_w = watch_sector_df.head(4)
+        weak_w = watch_sector_df.tail(4).sort_values("平均涨跌幅", ascending=True)
+        panel["自选池强方向"] = "；".join([f'{r["所属板块"]}{r["平均涨跌幅"]}%' for _, r in strong_w.iterrows()])
+        panel["自选池弱方向"] = "；".join([f'{r["所属板块"]}{r["平均涨跌幅"]}%' for _, r in weak_w.iterrows()])
     else:
-        summary["最强ETF"] = "无数据"
-        summary["最弱ETF"] = "无数据"
+        panel["自选池强方向"] = "无数据"
+        panel["自选池弱方向"] = "无数据"
 
-    if watch_df is not None and not watch_df.empty:
-        pct_series = watch_df["涨跌幅"].apply(safe_float)
-        up_count = int((pct_series > 0).sum())
-        down_count = int((pct_series < 0).sum())
-        big_up_count = int((pct_series >= 5).sum())
-        big_down_count = int((pct_series <= -5).sum())
-        tail_strong = int((watch_df["较上次涨跌幅变化"].apply(safe_float) >= 0.8).sum()) if "较上次涨跌幅变化" in watch_df.columns else 0
-        tail_weak = int((watch_df["较上次涨跌幅变化"].apply(safe_float) <= -0.8).sum()) if "较上次涨跌幅变化" in watch_df.columns else 0
+    candidates = watch_df[
+        (watch_df["风险评分"].apply(safe_float) >= 4)
+        & (watch_df["涨跌幅"].apply(safe_float) < 7)
+        & (watch_df["较上次涨跌幅变化"].apply(safe_float) >= -0.3)
+    ].sort_values(["风险评分", "涨跌幅"], ascending=[False, False]).head(5)
 
-        summary["股票池上涨数量"] = str(up_count)
-        summary["股票池下跌数量"] = str(down_count)
-        summary["股票池涨超5%"] = str(big_up_count)
-        summary["股票池跌超5%"] = str(big_down_count)
-        summary["尾盘转强数量"] = str(tail_strong)
-        summary["尾盘转弱数量"] = str(tail_weak)
+    avoid = watch_df[
+        (watch_df["距离高点%"].apply(safe_float) <= -4)
+        | (watch_df["较上次涨跌幅变化"].apply(safe_float) <= -1)
+        | (watch_df["涨跌幅"].apply(safe_float) <= -4)
+    ].sort_values(["较上次涨跌幅变化", "涨跌幅"]).head(5)
 
-        # 初步判断
-        market_state = "分化震荡"
-        if big_down_count >= 5 or down_count > up_count * 1.2:
-            market_state = "防守优先"
-        elif big_up_count >= 5 and up_count > down_count:
-            market_state = "结构性进攻"
-        elif up_count > down_count:
-            market_state = "温和偏强"
-
-        # 如果全市场有数据，用全市场情绪修正
-        full_mood = breadth.get("全市场情绪", "")
-        if full_mood == "防守":
-            market_state = "防守优先"
-        elif full_mood == "进攻" and market_state != "防守优先":
-            market_state = "结构性进攻"
-
-        summary["市场状态"] = market_state
-    else:
-        summary["股票池上涨数量"] = "无数据"
-        summary["股票池下跌数量"] = "无数据"
-        summary["股票池涨超5%"] = "无数据"
-        summary["股票池跌超5%"] = "无数据"
-        summary["尾盘转强数量"] = "无数据"
-        summary["尾盘转弱数量"] = "无数据"
-        summary["市场状态"] = "无数据"
-
-    return summary
-
-
-def make_decision_panel(watch_df: pd.DataFrame, summary: Dict[str, str], breadth: Dict[str, str], industry_df: pd.DataFrame) -> Dict[str, str]:
-    panel: Dict[str, str] = {}
-
-    market_state = summary.get("市场状态", "无数据")
-    full_mood = breadth.get("全市场情绪", "无数据")
-
-    if market_state == "防守优先" or full_mood == "防守":
-        panel["是否适合新开仓"] = "不适合；最多只允许很小仓试错"
-    elif market_state == "结构性进攻":
-        panel["是否适合新开仓"] = "只适合围绕最强方向小仓"
-    elif market_state == "温和偏强":
-        panel["是否适合新开仓"] = "可以小仓，但不追高"
-    else:
-        panel["是否适合新开仓"] = "分化行情，先观察"
-
-    if watch_df is not None and not watch_df.empty:
-        sector_rank = (
-            watch_df.groupby("所属板块")["涨跌幅"]
-            .mean()
-            .sort_values(ascending=False)
-        )
-        strong_sectors = sector_rank.head(3)
-        weak_sectors = sector_rank.tail(3)
-
-        panel["股票池强方向"] = "；".join([f"{k}{v:.2f}%" for k, v in strong_sectors.items()])
-        panel["股票池弱方向"] = "；".join([f"{k}{v:.2f}%" for k, v in weak_sectors.items()])
-
-        candidates = watch_df[
-            (watch_df["风险评分"].apply(safe_float) >= 4)
-            & (watch_df["涨跌幅"].apply(safe_float) < 7)
-            & (watch_df["较上次涨跌幅变化"].apply(safe_float) >= -0.3)
-        ].sort_values(["风险评分", "涨跌幅"], ascending=[False, False]).head(5)
-
-        avoid = watch_df[
-            (watch_df["距离高点%"].apply(safe_float) <= -4)
-            | (watch_df["较上次涨跌幅变化"].apply(safe_float) <= -1)
-            | (watch_df["涨跌幅"].apply(safe_float) <= -4)
-        ].sort_values(["较上次涨跌幅变化", "涨跌幅"]).head(5)
-
-        panel["候选观察"] = "；".join([f'{r["名称"]}({r["涨跌幅"]}%,评分{r["风险评分"]})' for _, r in candidates.iterrows()]) or "无"
-        panel["风险回避"] = "；".join([f'{r["名称"]}({r["涨跌幅"]}%,{r["尾盘提示"]})' for _, r in avoid.iterrows()]) or "无"
-
-    if industry_df is not None and not industry_df.empty:
-        top_ind = industry_df.sort_values("涨跌幅", ascending=False).head(3)
-        bot_ind = industry_df.sort_values("涨跌幅", ascending=True).head(3)
-        panel["行业强方向"] = "；".join([f'{r["板块名称"]}{r["涨跌幅"]:.2f}%' for _, r in top_ind.iterrows()])
-        panel["行业弱方向"] = "；".join([f'{r["板块名称"]}{r["涨跌幅"]:.2f}%' for _, r in bot_ind.iterrows()])
-    else:
-        panel["行业强方向"] = "无数据"
-        panel["行业弱方向"] = "无数据"
+    panel["候选观察"] = "；".join([f'{r["名称"]}({r["涨跌幅"]}%,评分{r["风险评分"]})' for _, r in candidates.iterrows()]) or "无"
+    panel["风险回避"] = "；".join([f'{r["名称"]}({r["涨跌幅"]}%,{r["尾盘提示"]})' for _, r in avoid.iterrows()]) or "无"
 
     return panel
 
 
 # =========================
-# 8. HTML生成
+# 10. HTML
 # =========================
 
 def css_style() -> str:
@@ -1076,7 +955,7 @@ def css_style() -> str:
             margin-top: 26px; margin-bottom: 10px; font-size: 20px; font-weight: bold;
         }
         .summary-grid {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
             gap: 12px; margin-bottom: 18px;
         }
         .summary-card {
@@ -1115,6 +994,19 @@ def css_style() -> str:
     """
 
 
+def dict_to_cards(data: Dict[str, str]) -> str:
+    html = "<div class='summary-grid'>"
+    for k, v in data.items():
+        html += f"""
+        <div class="summary-card">
+            <div class="label">{k}</div>
+            <div class="value">{v}</div>
+        </div>
+        """
+    html += "</div>"
+    return html
+
+
 def dataframe_to_simple_table(df: pd.DataFrame, columns: List[str]) -> str:
     if df is None or df.empty:
         return "<p style='color:#666;'>暂无数据</p>"
@@ -1129,13 +1021,13 @@ def dataframe_to_simple_table(df: pd.DataFrame, columns: List[str]) -> str:
         for col in columns:
             value = row.get(col, "")
             cls = ""
-            if col in ["涨跌幅", "较上次涨跌幅变化", "领涨股涨幅"]:
+            if col in ["涨跌幅", "平均涨跌幅", "较上次涨跌幅变化"]:
                 cls = "red" if safe_float(value) >= 0 else "green"
                 value = f"{value}%"
             elif col == "距离高点%":
                 cls = "green" if safe_float(value) < -3 else ""
                 value = f"{value}%"
-            elif col in ["成交额", "主力净流入"]:
+            elif col == "成交额":
                 value = format_amount(value)
             html += f'<td class="{cls}">{value}</td>'
         html += "</tr>"
@@ -1144,40 +1036,34 @@ def dataframe_to_simple_table(df: pd.DataFrame, columns: List[str]) -> str:
     return html
 
 
-def dict_to_cards(data: Dict[str, str]) -> str:
-    html = "<div class='summary-grid'>"
-    for k, v in data.items():
-        html += f"""
-        <div class="summary-card">
-            <div class="label">{k}</div>
-            <div class="value">{v}</div>
-        </div>
-        """
-    html += "</div>"
-    return html
-
-
 def generate_html(
-    df: pd.DataFrame,
-    version_name: str,
+    watch_df: pd.DataFrame,
+    representative_df: pd.DataFrame,
     index_df: pd.DataFrame,
     etf_df: pd.DataFrame,
-    breadth: Dict[str, str],
-    industry_df: pd.DataFrame,
-    market_summary: Dict[str, str],
+    temp: Dict[str, str],
     decision_panel: Dict[str, str],
+    index_breadth: Dict[str, str],
+    etf_breadth: Dict[str, str],
+    rep_breadth: Dict[str, str],
+    watch_breadth: Dict[str, str],
+    rep_sector_df: pd.DataFrame,
+    watch_sector_df: pd.DataFrame,
+    version_name: str,
 ) -> str:
     update_time = now_str()
 
-    top_industry = industry_df.sort_values("涨跌幅", ascending=False).head(10) if industry_df is not None and not industry_df.empty else pd.DataFrame()
-    bottom_industry = industry_df.sort_values("涨跌幅", ascending=True).head(10) if industry_df is not None and not industry_df.empty else pd.DataFrame()
+    top_rep_sector = rep_sector_df.head(12) if rep_sector_df is not None and not rep_sector_df.empty else pd.DataFrame()
+    bottom_rep_sector = rep_sector_df.tail(12).sort_values("平均涨跌幅", ascending=True) if rep_sector_df is not None and not rep_sector_df.empty else pd.DataFrame()
+    top_watch_sector = watch_sector_df.head(10) if watch_sector_df is not None and not watch_sector_df.empty else pd.DataFrame()
+    bottom_watch_sector = watch_sector_df.tail(10).sort_values("平均涨跌幅", ascending=True) if watch_sector_df is not None and not watch_sector_df.empty else pd.DataFrame()
 
     html = f"""
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>A股尾盘决策观察表</title>
+    <title>A股市场温度计</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
@@ -1187,55 +1073,72 @@ def generate_html(
     {css_style()}
 </head>
 <body>
-    <h1>A股尾盘决策观察表</h1>
+    <h1>A股市场温度计 + 自选股尾盘决策</h1>
     <div class="time">
         页面生成时间：{update_time}<br>
         唯一版本号：{version_name}<br>
-        股票池数量：{len(STOCK_LIST)} 只；指数数量：{len(INDEX_LIST)} 个；ETF数量：{len(ETF_LIST)} 个
+        自选股数量：{len(STOCK_LIST)} 只；代表池数量：{len(REPRESENTATIVE_LIST)} 只；指数数量：{len(INDEX_LIST)} 个；ETF数量：{len(ETF_LIST)} 个
     </div>
 
     <div class="note">
-        本页面由 GitHub Actions 自动生成。<br>
-        已加入：大盘指数、板块ETF、全市场情绪、行业板块排行、与上次运行比较、风险评分、尾盘提示。<br>
-        全市场情绪与行业排行使用东方财富公开接口；如果接口失败，主行情页面仍会正常生成。
+        本页面不强依赖东方财富全A接口，而是使用腾讯接口构造“四层市场温度计”：宽基指数 + ETF矩阵 + 代表性股票池 + 自选股池。<br>
+        代表池不是全A真实统计，但覆盖金融、消费、医药、新能源、AI算力、半导体、通信、PCB、军工、周期等主要方向，用来近似判断市场温度。<br>
+        “较上次变化”依赖 docs/latest_snapshot.csv，首次运行时没有对比。
     </div>
 """
 
     html += "<div class='section-title'>一、尾盘决策区</div>"
     html += dict_to_cards(decision_panel)
 
-    html += "<div class='section-title'>二、市场环境摘要</div>"
-    html += dict_to_cards(market_summary)
+    html += "<div class='section-title'>二、市场温度计</div>"
+    html += dict_to_cards(temp)
 
-    html += "<div class='section-title'>三、全市场情绪</div>"
-    html += dict_to_cards(breadth)
+    html += "<div class='section-title'>三、四层情绪摘要</div>"
+    merged_breadth = {}
+    merged_breadth.update(index_breadth)
+    merged_breadth.update(etf_breadth)
+    merged_breadth.update(rep_breadth)
+    merged_breadth.update(watch_breadth)
+    html += dict_to_cards(merged_breadth)
 
-    html += "<div class='section-title'>四、大盘指数</div>"
+    html += "<div class='section-title'>四、宽基指数</div>"
     html += dataframe_to_simple_table(
         index_df,
         ["名称", "最新价", "涨跌幅", "今开", "最高", "最低", "距离高点%", "成交额", "行情时间"]
     )
 
-    html += "<div class='section-title'>五、板块ETF/方向强弱</div>"
+    html += "<div class='section-title'>五、ETF矩阵</div>"
     html += dataframe_to_simple_table(
-        etf_df,
+        etf_df.sort_values("涨跌幅", ascending=False),
         ["名称", "最新价", "涨跌幅", "今开", "最高", "最低", "距离高点%", "成交额", "行情时间"]
     )
 
-    html += "<div class='section-title'>六、行业板块涨幅前10</div>"
+    html += "<div class='section-title'>六、代表池强方向前12</div>"
     html += dataframe_to_simple_table(
-        top_industry,
-        ["板块名称", "涨跌幅", "成交额", "主力净流入", "领涨股", "领涨股涨幅"]
+        top_rep_sector,
+        ["所属板块", "股票数", "平均涨跌幅", "上涨数", "涨超5数", "跌超5数", "成交额"]
     )
 
-    html += "<div class='section-title'>七、行业板块跌幅前10</div>"
+    html += "<div class='section-title'>七、代表池弱方向前12</div>"
     html += dataframe_to_simple_table(
-        bottom_industry,
-        ["板块名称", "涨跌幅", "成交额", "主力净流入", "领涨股", "领涨股涨幅"]
+        bottom_rep_sector,
+        ["所属板块", "股票数", "平均涨跌幅", "上涨数", "涨超5数", "跌超5数", "成交额"]
+    )
+
+    html += "<div class='section-title'>八、自选池强方向</div>"
+    html += dataframe_to_simple_table(
+        top_watch_sector,
+        ["所属板块", "股票数", "平均涨跌幅", "上涨数", "涨超5数", "跌超5数", "成交额"]
+    )
+
+    html += "<div class='section-title'>九、自选池弱方向</div>"
+    html += dataframe_to_simple_table(
+        bottom_watch_sector,
+        ["所属板块", "股票数", "平均涨跌幅", "上涨数", "涨超5数", "跌超5数", "成交额"]
     )
 
     html += """
-    <div class="section-title">八、自选股观察表</div>
+    <div class="section-title">十、自选股观察表</div>
     <div class="table-wrap">
     <table>
         <thead>
@@ -1257,7 +1160,6 @@ def generate_html(
                 <th>量比</th>
                 <th>换手率</th>
                 <th>成交额</th>
-                <th>数据源</th>
                 <th>行情时间</th>
                 <th>操作提示</th>
                 <th>风险评分</th>
@@ -1267,7 +1169,7 @@ def generate_html(
         <tbody>
 """
 
-    for _, row in df.iterrows():
+    for _, row in watch_df.iterrows():
         pct_float = safe_float(row.get("涨跌幅", 0))
         pct_class = "red" if pct_float >= 0 else "green"
         delta_pct = safe_float(row.get("较上次涨跌幅变化", 0))
@@ -1295,7 +1197,6 @@ def generate_html(
                 <td>{row.get("量比", "")}</td>
                 <td>{row.get("换手率", "")}</td>
                 <td>{format_amount(row.get("成交额", ""))}</td>
-                <td>{row.get("数据源", "")}</td>
                 <td>{row.get("行情时间", "")}</td>
                 <td>{row.get("操作提示", "")}</td>
                 <td>{row.get("风险评分", "")}</td>
@@ -1309,12 +1210,13 @@ def generate_html(
     </div>
 
     <div class="footer">
-        说明：本表为尾盘决策辅助表，不构成投资建议。行情接口口径可能与交易软件存在细微差异。
-        “较上次涨跌幅变化”依赖 docs/latest_snapshot.csv；首次运行或快照缺失时显示“首次/无对比”。
+        说明：本页面为市场温度和尾盘观察辅助工具，不构成投资建议。代表池不是全A真实统计，只是稳定可获取的全局代理。
+        若未来真实全A接口稳定，可再单独增加“真实全A情绪”模块。
     </div>
 </body>
 </html>
 """
+
     return html
 
 
@@ -1323,12 +1225,9 @@ def generate_error_html(error_message: str, version_name: str) -> str:
     return f"""
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <title>A股尾盘决策观察表</title>
-</head>
+<head><meta charset="UTF-8"><title>A股市场温度计</title></head>
 <body style="font-family: Microsoft YaHei, Arial; padding: 30px; line-height: 1.8;">
-    <h1>A股尾盘决策观察表</h1>
+    <h1>A股市场温度计</h1>
     <p>页面生成时间：{update_time}</p>
     <p>唯一版本号：{version_name}</p>
     <h2 style="color:#d1242f;">本次行情获取失败</h2>
@@ -1362,7 +1261,7 @@ def write_latest_files(version_name: str):
 
 
 # =========================
-# 9. 主程序
+# 11. 主程序
 # =========================
 
 def main():
@@ -1373,47 +1272,60 @@ def main():
     history_file = os.path.join(HISTORY_DIR, f"{version_name}.html")
 
     try:
-        market_df = get_market_data()
-        index_df = get_index_data()
-        etf_df = get_etf_data()
-        breadth = get_full_market_breadth()
-        industry_df = get_industry_board_rank()
+        print("开始获取自选股数据...")
+        watch_df = get_watch_data()
 
+        print("开始获取指数数据...")
+        index_df = get_index_data()
+
+        print("开始获取ETF矩阵数据...")
+        etf_df = get_etf_data()
+
+        print("开始获取代表池数据...")
+        representative_df = get_representative_data()
+
+        # 恢复自选股顺序和名称
         stock_codes = [code for code, _ in STOCK_LIST]
         name_map = {code: name for code, name in STOCK_LIST}
         order_map = {code: i for i, (code, _) in enumerate(STOCK_LIST)}
 
-        watch_df = market_df[market_df["代码"].isin(stock_codes)].copy()
-        if watch_df.empty:
-            raise RuntimeError("没有匹配到股票池中的股票，可能是行情接口字段变化或数据为空。")
-
+        watch_df = watch_df[watch_df["代码"].isin(stock_codes)].copy()
         watch_df["排序"] = watch_df["代码"].map(order_map)
         watch_df = watch_df.sort_values("排序").drop(columns=["排序"])
         watch_df["名称"] = watch_df["代码"].map(name_map).fillna(watch_df["名称"])
 
         prev_df = load_previous_snapshot()
         watch_df = add_previous_compare(watch_df, prev_df)
+        representative_df = add_previous_compare(representative_df, prev_df)
 
-        watch_df = add_stock_extra_columns(watch_df)
-        watch_df["操作提示"] = watch_df.apply(make_signal, axis=1)
-        watch_df["级别"] = watch_df.apply(make_level, axis=1)
+        watch_df = add_stock_scores(watch_df)
 
-        # 如果东方财富全市场接口失败，则用股票池+指数+ETF生成备用估算，避免页面空白
-        if breadth.get("全A上涨家数", "无数据") == "无数据":
-            breadth = make_breadth_fallback(watch_df, index_df, etf_df, breadth)
+        index_breadth = calc_breadth(index_df, "指数")
+        etf_breadth = calc_breadth(etf_df, "ETF")
+        rep_breadth = calc_breadth(representative_df, "代表池")
+        watch_breadth = calc_breadth(watch_df, "自选池")
 
-        market_summary = make_market_summary(index_df, etf_df, watch_df, breadth)
-        decision_panel = make_decision_panel(watch_df, market_summary, breadth, industry_df)
+        temp = make_temperature(index_df, etf_df, representative_df, watch_df)
+
+        rep_sector_df = sector_strength(representative_df)
+        watch_sector_df = sector_strength(watch_df)
+
+        decision_panel = make_decision_panel(temp, etf_df, rep_sector_df, watch_sector_df, watch_df)
 
         html = generate_html(
-            watch_df,
-            version_name,
-            index_df,
-            etf_df,
-            breadth,
-            industry_df,
-            market_summary,
-            decision_panel,
+            watch_df=watch_df,
+            representative_df=representative_df,
+            index_df=index_df,
+            etf_df=etf_df,
+            temp=temp,
+            decision_panel=decision_panel,
+            index_breadth=index_breadth,
+            etf_breadth=etf_breadth,
+            rep_breadth=rep_breadth,
+            watch_breadth=watch_breadth,
+            rep_sector_df=rep_sector_df,
+            watch_sector_df=watch_sector_df,
+            version_name=version_name,
         )
 
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
@@ -1423,17 +1335,17 @@ def main():
             f.write(html)
 
         write_latest_files(version_name)
-        save_snapshot(watch_df)
+        save_snapshot(watch_df, representative_df)
 
         print(f"最新网页已生成：{OUTPUT_FILE}")
         print(f"唯一历史网页已生成：{history_file}")
         print("latest_url.txt 已生成")
         print("latest_manifest.json 已生成")
         print("latest_snapshot.csv 已生成")
-        print(f"股票池数量：{len(STOCK_LIST)}")
-        print(f"实际生成股票数量：{len(watch_df)}")
-        print("使用数据源：")
-        print(watch_df["数据源"].value_counts())
+        print(f"自选股数量：{len(watch_df)}")
+        print(f"代表池数量：{len(representative_df)}")
+        print(f"指数数量：{len(index_df)}")
+        print(f"ETF数量：{len(etf_df)}")
 
     except Exception as e:
         error_message = repr(e) + "\n\n" + traceback.format_exc()
