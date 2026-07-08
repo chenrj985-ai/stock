@@ -30,6 +30,7 @@ jobs:
     env:
       TZ: Asia/Shanghai
       SITE_BASE_URL: https://chenrj985-ai.github.io/stock
+      BASE_URL: https://chenrj985-ai.github.io/stock
 
     steps:
       - name: Checkout
@@ -73,9 +74,10 @@ jobs:
             cp docs/index.html docs/schedule_latest.html
           fi
 
-          # 写入最新唯一网页地址
+          # 写入最新唯一网页地址，避免缓存
           echo "${SITE_BASE_URL}/history/${LATEST_BASENAME}" > docs/latest_url.txt
-                    # 同时生成 latest_manifest.json，方便我校验是否读到最新版本
+
+          # 同时生成 latest_manifest.json，方便校验是否读到最新版本
           VERSION_NAME="${LATEST_BASENAME%.html}"
           BJ_TIME=$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')
 
