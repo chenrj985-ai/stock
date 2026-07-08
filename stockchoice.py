@@ -250,20 +250,20 @@ def request_text(url: str, headers: Dict[str, str], encoding: str = "gbk", timeo
     raise RuntimeError(f"连续 5 次请求失败：{repr(last_error)}")
 
 
-def request_json(url: str, headers: Dict[str, str], timeout: int = 15) -> Dict:
+def request_json(url: str, headers: Dict[str, str], timeout: int = 6, max_retries: int = 1) -> Dict:
     last_error = None
-    for i in range(5):
+    for i in range(max_retries):
         try:
             print(f"请求JSON第 {i + 1} 次：{url[:120]}...")
-            time.sleep(random.uniform(0.8, 2.2))
+            time.sleep(random.uniform(0.3, 0.8))
             resp = requests.get(url, headers=headers, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:
             last_error = e
             print(f"请求JSON失败：{repr(e)}")
-            time.sleep(3 + i * 3)
-    raise RuntimeError(f"连续 5 次JSON请求失败：{repr(last_error)}")
+            time.sleep(1 + i)
+    raise RuntimeError(f"连续 {max_retries} 次JSON请求失败：{repr(last_error)}")
 
 
 # =========================
@@ -487,7 +487,7 @@ def get_full_market_breadth() -> Dict[str, str]:
             "&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
             "&fields=f12,f14,f2,f3,f4,f5,f6,f15,f16,f17,f18"
         )
-        data = request_json(url, eastmoney_headers(), timeout=20)
+        data = request_json(url, eastmoney_headers(), timeout=6, max_retries=1)
         diff = data.get("data", {}).get("diff", []) or []
 
         pcts = []
@@ -568,7 +568,7 @@ def get_industry_board_rank() -> pd.DataFrame:
             "&fs=m:90+t:2"
             "&fields=f12,f14,f2,f3,f4,f8,f20,f62,f128,f136,f140"
         )
-        data = request_json(url, eastmoney_headers(), timeout=20)
+        data = request_json(url, eastmoney_headers(), timeout=6, max_retries=1)
         diff = data.get("data", {}).get("diff", []) or []
 
         rows = []
