@@ -852,6 +852,81 @@ def make_level(row) -> str:
     return "C"
 
 
+
+def make_breadth_fallback(watch_df: pd.DataFrame, index_df: pd.DataFrame, etf_df: pd.DataFrame, old_breadth: Dict[str, str]) -> Dict[str, str]:
+    """
+    当东方财富全市场接口失败时，使用：
+    1. 自选股池涨跌情况
+    2. 指数涨跌情况
+    3. ETF涨跌情况
+    生成一个“估算版市场情绪”。
+
+    注意：这不是全A真实涨跌家数，只是为了页面不空白，并给尾盘判断一个备用参考。
+    """
+    result = dict(old_breadth or {})
+
+    if watch_df is None or watch_df.empty:
+        result.update({
+            "全A数量": "无数据",
+            "全A上涨家数": "无数据",
+            "全A下跌家数": "无数据",
+            "全A平盘家数": "无数据",
+            "涨停附近家数": "无数据",
+            "跌停附近家数": "无数据",
+            "涨超5%家数": "无数据",
+            "跌超5%家数": "无数据",
+            "全A成交额": "无数据",
+            "全市场情绪": "无数据",
+            "数据源": "东方财富失败，备用估算也无数据",
+        })
+        return result
+
+    pct = watch_df["涨跌幅"].apply(safe_float)
+    up = int((pct > 0).sum())
+    down = int((pct < 0).sum())
+    flat = int((pct == 0).sum())
+    limit_up = int((pct >= 9.5).sum())
+    limit_down = int((pct <= -9.5).sum())
+    up5 = int((pct >= 5).sum())
+    down5 = int((pct <= -5).sum())
+    total_amount = watch_df["成交额"].apply(safe_float).sum() if "成交额" in watch_df.columns else 0
+
+    index_avg = 0.0
+    index_weak = 0
+    if index_df is not None and not index_df.empty:
+        index_pct = index_df["涨跌幅"].apply(safe_float)
+        index_avg = float(index_pct.mean())
+        index_weak = int((index_pct < 0).sum())
+
+    etf_avg = 0.0
+    if etf_df is not None and not etf_df.empty:
+        etf_avg = float(etf_df["涨跌幅"].apply(safe_float).mean())
+
+    # 备用情绪判断：不是全市场真实值，只是综合估算
+    if index_weak >= 4 or down > up * 1.2 or down5 >= 5:
+        mood = "防守"
+    elif up > down and up5 >= 5 and index_avg >= 0:
+        mood = "偏暖"
+    elif up > down and etf_avg >= 0:
+        mood = "结构性偏暖"
+    else:
+        mood = "分化"
+
+    result.update({
+        "全A数量": f"无真实数据；股票池{len(watch_df)}只",
+        "全A上涨家数": f"无真实数据；股票池上涨{up}",
+        "全A下跌家数": f"无真实数据；股票池下跌{down}",
+        "全A平盘家数": f"无真实数据；股票池平盘{flat}",
+        "涨停附近家数": f"无真实数据；股票池{limit_up}",
+        "跌停附近家数": f"无真实数据；股票池{limit_down}",
+        "涨超5%家数": f"无真实数据；股票池{up5}",
+        "跌超5%家数": f"无真实数据；股票池{down5}",
+        "全A成交额": f"无真实数据；股票池成交额{format_amount(total_amount)}",
+        "全市场情绪": mood,
+        "数据源": "东方财富失败，当前为股票池+指数+ETF备用估算",
+    })
+    return result
+
 def make_market_summary(
     index_df: pd.DataFrame,
     etf_df: pd.DataFrame,
@@ -1322,6 +1397,10 @@ def main():
         watch_df = add_stock_extra_columns(watch_df)
         watch_df["操作提示"] = watch_df.apply(make_signal, axis=1)
         watch_df["级别"] = watch_df.apply(make_level, axis=1)
+
+        # 如果东方财富全市场接口失败，则用股票池+指数+ETF生成备用估算，避免页面空白
+        if breadth.get("全A上涨家数", "无数据") == "无数据":
+            breadth = make_breadth_fallback(watch_df, index_df, etf_df, breadth)
 
         market_summary = make_market_summary(index_df, etf_df, watch_df, breadth)
         decision_panel = make_decision_panel(watch_df, market_summary, breadth, industry_df)
