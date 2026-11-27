@@ -1,0 +1,1798 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>A股市场温度计</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", Arial, sans-serif;
+            margin: 24px;
+            background: #f6f8fa;
+            color: #24292f;
+        }
+        h1 { margin-bottom: 6px; }
+        .time { color: #666; margin-bottom: 20px; line-height: 1.7; }
+        .note {
+            background: #fff8c5; border: 1px solid #eac54f; padding: 12px 16px;
+            border-radius: 8px; margin-bottom: 20px; line-height: 1.7;
+        }
+        .section-title {
+            margin-top: 26px; margin-bottom: 10px; font-size: 20px; font-weight: bold;
+        }
+        .summary-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+            gap: 12px; margin-bottom: 18px;
+        }
+        .summary-card {
+            background: white; border-radius: 8px; padding: 12px 14px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08); line-height: 1.6;
+        }
+        .summary-card .label { color: #57606a; font-size: 13px; }
+        .summary-card .value { font-size: 17px; font-weight: bold; }
+        .table-wrap { overflow-x: auto; margin-bottom: 18px; }
+        table {
+            width: 100%; border-collapse: collapse; background: white; border-radius: 8px;
+            overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+        th, td {
+            border-bottom: 1px solid #eaeef2; padding: 9px 8px; text-align: center;
+            font-size: 14px; white-space: nowrap;
+        }
+        th { background: #0969da; color: white; position: sticky; top: 0; }
+        tr:hover { background: #f1f8ff; }
+        .red { color: #d1242f; font-weight: bold; }
+        .green { color: #1a7f37; font-weight: bold; }
+        .level-a {
+            background: #ffecec; color: #cf222e; font-weight: bold;
+            border-radius: 4px; padding: 3px 7px;
+        }
+        .level-b {
+            background: #fff8c5; color: #7d4e00; font-weight: bold;
+            border-radius: 4px; padding: 3px 7px;
+        }
+        .level-c {
+            background: #eaeef2; color: #57606a; font-weight: bold;
+            border-radius: 4px; padding: 3px 7px;
+        }
+        .footer { margin-top: 18px; color: #666; font-size: 13px; line-height: 1.6; }
+    </style>
+    
+</head>
+<body>
+    <h1>A股市场温度计 + 自选股尾盘决策</h1>
+    <div class="time">
+        页面生成时间：2026-11-27 19:50:55<br>
+        唯一版本号：20261127_1950_48<br>
+        自选股数量：59 只；代表池数量：109 只；指数数量：7 个；ETF数量：27 个
+    </div>
+
+    <div class="note">
+        本页面不强依赖东方财富全A接口，而是使用腾讯接口构造“四层市场温度计”：宽基指数 + ETF矩阵 + 代表性股票池 + 自选股池。<br>
+        代表池不是全A真实统计，但覆盖金融、消费、医药、新能源、AI算力、半导体、通信、PCB、军工、周期等主要方向，用来近似判断市场温度。<br>
+        “较上次变化”依赖 docs/latest_snapshot.csv，首次运行时没有对比。
+    </div>
+<div class='section-title'>一、尾盘决策区</div><div class='summary-grid'>
+        <div class="summary-card">
+            <div class="label">今日是否适合新开仓</div>
+            <div class="value">可小仓进攻</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">综合温度分</div>
+            <div class="value">100</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">ETF强方向</div>
+            <div class="value">科创芯片ETF19.64%；科创50ETF17.36%；创业板ETF11.46%；半导体ETF10.06%；5GETF10.05%</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">ETF弱方向</div>
+            <div class="value">银行ETF-1.51%；红利ETF-0.35%；煤炭ETF-0.09%；酒ETF1.63%；医药ETF3.47%</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">代表池强方向</div>
+            <div class="value">半导体检测20.0%；半导体材料19.04%；国产AI芯片18.68%；半导体设备18.33%；光模块/CPO17.95%</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">代表池弱方向</div>
+            <div class="value">煤炭-3.03%；石油-2.66%；银行-1.95%；家电消费-1.64%；食品消费-1.21%</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">自选池强方向</div>
+            <div class="value">电源芯片20.01%；半导体检测20.0%；光通信20.0%；检测设备/显示20.0%</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">自选池弱方向</div>
+            <div class="value">高速铜缆6.03%；AI服务器9.56%；PCB/消费电子10.0%；覆铜板10.01%</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">候选观察</div>
+            <div class="value">沃尔核材(6.03%,评分6)</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">风险回避</div>
+            <div class="value">无</div>
+        </div>
+        </div><div class='section-title'>二、市场温度计</div><div class='summary-grid'>
+        <div class="summary-card">
+            <div class="label">指数温度分</div>
+            <div class="value">100</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">ETF温度分</div>
+            <div class="value">100</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">代表池温度分</div>
+            <div class="value">100</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">自选池温度分</div>
+            <div class="value">100</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">综合温度分</div>
+            <div class="value">100</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">综合结论</div>
+            <div class="value">可小仓进攻</div>
+        </div>
+        </div><div class='section-title'>三、四层情绪摘要</div><div class='summary-grid'>
+        <div class="summary-card">
+            <div class="label">指数数量</div>
+            <div class="value">7</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">指数上涨</div>
+            <div class="value">7</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">指数下跌</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">指数平盘</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">指数涨超5%</div>
+            <div class="value">5</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">指数跌超5%</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">指数涨停附近</div>
+            <div class="value">2</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">指数跌停附近</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">指数成交额</div>
+            <div class="value">39881.53亿</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">ETF数量</div>
+            <div class="value">27</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">ETF上涨</div>
+            <div class="value">24</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">ETF下跌</div>
+            <div class="value">3</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">ETF平盘</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">ETF涨超5%</div>
+            <div class="value">22</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">ETF跌超5%</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">ETF涨停附近</div>
+            <div class="value">15</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">ETF跌停附近</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">ETF成交额</div>
+            <div class="value">998.05亿</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">代表池数量</div>
+            <div class="value">108</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">代表池上涨</div>
+            <div class="value">90</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">代表池下跌</div>
+            <div class="value">17</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">代表池平盘</div>
+            <div class="value">1</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">代表池涨超5%</div>
+            <div class="value">67</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">代表池跌超5%</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">代表池涨停附近</div>
+            <div class="value">39</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">代表池跌停附近</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">代表池成交额</div>
+            <div class="value">4505.04亿</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">自选池数量</div>
+            <div class="value">59</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">自选池上涨</div>
+            <div class="value">59</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">自选池下跌</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">自选池平盘</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">自选池涨超5%</div>
+            <div class="value">58</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">自选池跌超5%</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">自选池涨停附近</div>
+            <div class="value">55</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">自选池跌停附近</div>
+            <div class="value">0</div>
+        </div>
+        
+        <div class="summary-card">
+            <div class="label">自选池成交额</div>
+            <div class="value">2975.03亿</div>
+        </div>
+        </div><div class='section-title'>四、宽基指数</div><div class='table-wrap'><table><thead><tr><th>名称</th><th>最新价</th><th>涨跌幅</th><th>今开</th><th>最高</th><th>最低</th><th>距离高点%</th><th>成交额</th><th>行情时间</th></tr></thead><tbody><tr><td class="">上证指数</td><td class="">3606.49</td><td class="red">3.73%</td><td class="">3482.38</td><td class="">3610.72</td><td class="">3467.41</td><td class="">-0.12%</td><td class="">9297.77亿</td><td class="">20261127161427</td></tr><tr><td class="">深证成指</td><td class="">10814.02</td><td class="red">7.24%</td><td class="">10121.14</td><td class="">10814.19</td><td class="">10075.83</td><td class="">-0.0%</td><td class="">10700.17亿</td><td class="">20261127161412</td></tr><tr><td class="">创业板指</td><td class="">2443.96</td><td class="red">11.61%</td><td class="">2202.82</td><td class="">2444.6</td><td class="">2199.23</td><td class="">-0.03%</td><td class="">5440.50亿</td><td class="">20261127161427</td></tr><tr><td class="">科创50</td><td class="">1346.25</td><td class="red">15.07%</td><td class="">1177.48</td><td class="">1347.62</td><td class="">1174.13</td><td class="">-0.1%</td><td class="">1315.90亿</td><td class="">20261127161409</td></tr><tr><td class="">中证1000</td><td class="">5982.91</td><td class="red">8.15%</td><td class="">5555.99</td><td class="">5982.91</td><td class="">5544.73</td><td class="">0.0%</td><td class="">3655.66亿</td><td class="">20261127161406</td></tr><tr><td class="">沪深300</td><td class="">4063.06</td><td class="red">4.17%</td><td class="">3909.08</td><td class="">4067.01</td><td class="">3883.8</td><td class="">-0.1%</td><td class="">6143.37亿</td><td class="">20261127161409</td></tr><tr><td class="">中证500</td><td class="">6313.63</td><td class="red">7.68%</td><td class="">5881.91</td><td class="">6315.72</td><td class="">5877.16</td><td class="">-0.03%</td><td class="">3328.15亿</td><td class="">20261127161409</td></tr></tbody></table></div><div class='section-title'>五、ETF矩阵</div><div class='table-wrap'><table><thead><tr><th>名称</th><th>最新价</th><th>涨跌幅</th><th>今开</th><th>最高</th><th>最低</th><th>距离高点%</th><th>成交额</th><th>行情时间</th></tr></thead><tbody><tr><td class="">科创芯片ETF</td><td class="">0.93</td><td class="red">19.64%</td><td class="">0.78</td><td class="">0.93</td><td class="">0.78</td><td class="">-0.32%</td><td class="">63.59亿</td><td class="">20261127161455</td></tr><tr><td class="">科创50ETF</td><td class="">1.45</td><td class="red">17.36%</td><td class="">1.24</td><td class="">1.45</td><td class="">1.24</td><td class="">-0.48%</td><td class="">186.32亿</td><td class="">20261127161454</td></tr><tr><td class="">创业板ETF</td><td class="">2.47</td><td class="red">11.46%</td><td class="">2.21</td><td class="">2.48</td><td class="">2.21</td><td class="">-0.4%</td><td class="">220.87亿</td><td class="">20261127161415</td></tr><tr><td class="">半导体ETF</td><td class="">0.77</td><td class="red">10.06%</td><td class="">0.7</td><td class="">0.77</td><td class="">0.7</td><td class="">0.0%</td><td class="">12.97亿</td><td class="">20261127161454</td></tr><tr><td class="">5GETF</td><td class="">0.66</td><td class="red">10.05%</td><td class="">0.6</td><td class="">0.66</td><td class="">0.6</td><td class="">0.0%</td><td class="">9.65亿</td><td class="">20261127161451</td></tr><tr><td class="">人工智能ETF</td><td class="">0.85</td><td class="red">10.04%</td><td class="">0.78</td><td class="">0.85</td><td class="">0.78</td><td class="">0.0%</td><td class="">1.75亿</td><td class="">20261127161457</td></tr><tr><td class="">电子ETF</td><td class="">0.62</td><td class="red">10.04%</td><td class="">0.57</td><td class="">0.62</td><td class="">0.57</td><td class="">0.0%</td><td class="">3837.00万</td><td class="">20261127161449</td></tr><tr><td class="">人工智能AIETF</td><td class="">1.35</td><td class="red">10.02%</td><td class="">1.24</td><td class="">1.35</td><td class="">1.24</td><td class="">0.0%</td><td class="">5.53亿</td><td class="">20261127161433</td></tr><tr><td class="">云计算ETF</td><td class="">1.34</td><td class="red">10.01%</td><td class="">1.22</td><td class="">1.34</td><td class="">1.22</td><td class="">0.0%</td><td class="">1.34亿</td><td class="">20261127161449</td></tr><tr><td class="">消费电子ETF</td><td class="">1.0</td><td class="red">10.0%</td><td class="">0.92</td><td class="">1.0</td><td class="">0.91</td><td class="">0.0%</td><td class="">2.16亿</td><td class="">20261127161433</td></tr><tr><td class="">芯片ETF</td><td class="">0.84</td><td class="red">10.0%</td><td class="">0.77</td><td class="">0.84</td><td class="">0.76</td><td class="">0.0%</td><td class="">6.77亿</td><td class="">20261127161445</td></tr><tr><td class="">大数据ETF</td><td class="">0.7</td><td class="red">10.0%</td><td class="">0.64</td><td class="">0.7</td><td class="">0.64</td><td class="">0.0%</td><td class="">7697.00万</td><td class="">20261127161452</td></tr><tr><td class="">计算机ETF</td><td class="">0.96</td><td class="red">9.92%</td><td class="">0.89</td><td class="">0.96</td><td class="">0.86</td><td class="">-0.1%</td><td class="">1593.00万</td><td class="">20261127161455</td></tr><tr><td class="">通信ETF</td><td class="">0.42</td><td class="red">9.92%</td><td class="">0.39</td><td class="">0.42</td><td class="">0.38</td><td class="">0.0%</td><td class="">40.30亿</td><td class="">20261127161454</td></tr><tr><td class="">中证1000ETF</td><td class="">2.46</td><td class="red">9.56%</td><td class="">2.26</td><td class="">2.46</td><td class="">2.25</td><td class="">0.0%</td><td class="">138.20亿</td><td class="">20261127161441</td></tr><tr><td class="">机器人ETF</td><td class="">0.83</td><td class="red">9.09%</td><td class="">0.76</td><td class="">0.83</td><td class="">0.76</td><td class="">-0.24%</td><td class="">10.73亿</td><td class="">20261127161438</td></tr><tr><td class="">中证500ETF</td><td class="">6.4</td><td class="red">8.76%</td><td class="">5.91</td><td class="">6.43</td><td class="">5.91</td><td class="">-0.37%</td><td class="">99.09亿</td><td class="">20261127161457</td></tr><tr><td class="">新能源车ETF</td><td class="">1.23</td><td class="red">7.32%</td><td class="">1.15</td><td class="">1.24</td><td class="">1.14</td><td class="">-0.24%</td><td class="">1.39亿</td><td class="">20261127161445</td></tr><tr><td class="">光伏ETF</td><td class="">0.66</td><td class="red">6.79%</td><td class="">0.62</td><td class="">0.66</td><td class="">0.61</td><td class="">-0.15%</td><td class="">1.86亿</td><td class="">20261127161458</td></tr><tr><td class="">证券ETF</td><td class="">1.01</td><td class="red">6.68%</td><td class="">0.94</td><td class="">1.01</td><td class="">0.94</td><td class="">0.0%</td><td class="">28.56亿</td><td class="">20261127161455</td></tr><tr><td class="">有色金属ETF</td><td class="">1.31</td><td class="red">6.24%</td><td class="">1.24</td><td class="">1.31</td><td class="">1.22</td><td class="">-0.23%</td><td class="">6.54亿</td><td class="">20261127161454</td></tr><tr><td class="">沪深300ETF</td><td class="">4.16</td><td class="red">5.13%</td><td class="">3.97</td><td class="">4.16</td><td class="">3.96</td><td class="">0.0%</td><td class="">123.70亿</td><td class="">20261127161500</td></tr><tr><td class="">医药ETF</td><td class="">0.39</td><td class="red">3.47%</td><td class="">0.38</td><td class="">0.39</td><td class="">0.37</td><td class="">-0.26%</td><td class="">4.43亿</td><td class="">20261127161440</td></tr><tr><td class="">酒ETF</td><td class="">0.44</td><td class="red">1.63%</td><td class="">0.43</td><td class="">0.44</td><td class="">0.43</td><td class="">0.0%</td><td class="">4.26亿</td><td class="">20261127161446</td></tr><tr><td class="">煤炭ETF</td><td class="">1.16</td><td class="green">-0.09%</td><td class="">1.16</td><td class="">1.16</td><td class="">1.14</td><td class="">-0.34%</td><td class="">4.65亿</td><td class="">20261127161440</td></tr><tr><td class="">红利ETF</td><td class="">3.4</td><td class="green">-0.35%</td><td class="">3.42</td><td class="">3.42</td><td class="">3.36</td><td class="">-0.61%</td><td class="">6.56亿</td><td class="">20261127161456</td></tr><tr><td class="">银行ETF</td><td class="">0.91</td><td class="green">-1.51%</td><td class="">0.93</td><td class="">0.93</td><td class="">0.91</td><td class="">-1.83%</td><td class="">15.53亿</td><td class="">20261127161443</td></tr></tbody></table></div><div class='section-title'>六、代表池强方向前12</div><div class='table-wrap'><table><thead><tr><th>所属板块</th><th>股票数</th><th>平均涨跌幅</th><th>上涨数</th><th>涨超5数</th><th>跌超5数</th><th>成交额</th></tr></thead><tbody><tr><td class="">半导体检测</td><td class="">2</td><td class="red">20.0%</td><td class="">2</td><td class="">2</td><td class="">0</td><td class="">39.87亿</td></tr><tr><td class="">半导体材料</td><td class="">3</td><td class="red">19.04%</td><td class="">3</td><td class="">3</td><td class="">0</td><td class="">70.34亿</td></tr><tr><td class="">国产AI芯片</td><td class="">1</td><td class="red">18.68%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">185.00亿</td></tr><tr><td class="">半导体设备</td><td class="">6</td><td class="red">18.33%</td><td class="">6</td><td class="">6</td><td class="">0</td><td class="">302.40亿</td></tr><tr><td class="">光模块/CPO</td><td class="">5</td><td class="red">17.95%</td><td class="">5</td><td class="">5</td><td class="">0</td><td class="">841.36亿</td></tr><tr><td class="">晶圆制造</td><td class="">2</td><td class="red">17.69%</td><td class="">2</td><td class="">2</td><td class="">0</td><td class="">202.14亿</td></tr><tr><td class="">存储/接口芯片</td><td class="">1</td><td class="red">15.69%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">70.13亿</td></tr><tr><td class="">国产算力</td><td class="">2</td><td class="red">14.02%</td><td class="">2</td><td class="">2</td><td class="">0</td><td class="">103.81亿</td></tr><tr><td class="">模拟芯片</td><td class="">1</td><td class="red">13.38%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">13.51亿</td></tr><tr><td class="">存储芯片</td><td class="">2</td><td class="red">12.84%</td><td class="">2</td><td class="">2</td><td class="">0</td><td class="">128.49亿</td></tr><tr><td class="">PCB</td><td class="">5</td><td class="red">11.02%</td><td class="">5</td><td class="">5</td><td class="">0</td><td class="">284.88亿</td></tr><tr><td class="">覆铜板</td><td class="">1</td><td class="red">10.01%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">86.10亿</td></tr></tbody></table></div><div class='section-title'>七、代表池弱方向前12</div><div class='table-wrap'><table><thead><tr><th>所属板块</th><th>股票数</th><th>平均涨跌幅</th><th>上涨数</th><th>涨超5数</th><th>跌超5数</th><th>成交额</th></tr></thead><tbody><tr><td class="">煤炭</td><td class="">2</td><td class="green">-3.03%</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">40.73亿</td></tr><tr><td class="">石油</td><td class="">2</td><td class="green">-2.66%</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">37.68亿</td></tr><tr><td class="">银行</td><td class="">5</td><td class="green">-1.95%</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">190.26亿</td></tr><tr><td class="">家电消费</td><td class="">3</td><td class="green">-1.64%</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">82.22亿</td></tr><tr><td class="">食品消费</td><td class="">2</td><td class="green">-1.21%</td><td class="">0</td><td class="">0</td><td class="">0</td><td class="">44.71亿</td></tr><tr><td class="">白酒消费</td><td class="">4</td><td class="red">0.61%</td><td class="">3</td><td class="">0</td><td class="">0</td><td class="">94.99亿</td></tr><tr><td class="">基建</td><td class="">3</td><td class="red">1.01%</td><td class="">2</td><td class="">0</td><td class="">0</td><td class="">19.73亿</td></tr><tr><td class="">保险</td><td class="">3</td><td class="red">1.61%</td><td class="">3</td><td class="">0</td><td class="">0</td><td class="">69.71亿</td></tr><tr><td class="">医药</td><td class="">7</td><td class="red">2.61%</td><td class="">6</td><td class="">1</td><td class="">0</td><td class="">134.68亿</td></tr><tr><td class="">地产</td><td class="">2</td><td class="red">2.81%</td><td class="">2</td><td class="">0</td><td class="">0</td><td class="">8.45亿</td></tr><tr><td class="">新能源车</td><td class="">1</td><td class="red">3.41%</td><td class="">1</td><td class="">0</td><td class="">0</td><td class="">29.12亿</td></tr><tr><td class="">光伏</td><td class="">3</td><td class="red">4.25%</td><td class="">3</td><td class="">1</td><td class="">0</td><td class="">17.68亿</td></tr></tbody></table></div><div class='section-title'>八、自选池强方向</div><div class='table-wrap'><table><thead><tr><th>所属板块</th><th>股票数</th><th>平均涨跌幅</th><th>上涨数</th><th>涨超5数</th><th>跌超5数</th><th>成交额</th></tr></thead><tbody><tr><td class="">电源芯片</td><td class="">1</td><td class="red">20.01%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">14.88亿</td></tr><tr><td class="">半导体检测</td><td class="">3</td><td class="red">20.0%</td><td class="">3</td><td class="">3</td><td class="">0</td><td class="">50.86亿</td></tr><tr><td class="">光通信</td><td class="">1</td><td class="red">20.0%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">9.76亿</td></tr><tr><td class="">检测设备/显示</td><td class="">1</td><td class="red">20.0%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">10.58亿</td></tr><tr><td class="">国产AI芯片</td><td class="">1</td><td class="red">18.68%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">185.00亿</td></tr><tr><td class="">半导体设备</td><td class="">7</td><td class="red">18.57%</td><td class="">7</td><td class="">7</td><td class="">0</td><td class="">317.51亿</td></tr><tr><td class="">光模块/CPO</td><td class="">5</td><td class="red">17.95%</td><td class="">5</td><td class="">5</td><td class="">0</td><td class="">841.36亿</td></tr><tr><td class="">晶圆制造</td><td class="">3</td><td class="red">17.42%</td><td class="">3</td><td class="">3</td><td class="">0</td><td class="">218.28亿</td></tr><tr><td class="">半导体材料</td><td class="">5</td><td class="red">17.04%</td><td class="">5</td><td class="">5</td><td class="">0</td><td class="">94.46亿</td></tr><tr><td class="">存储/接口芯片</td><td class="">1</td><td class="red">15.69%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">70.13亿</td></tr></tbody></table></div><div class='section-title'>九、自选池弱方向</div><div class='table-wrap'><table><thead><tr><th>所属板块</th><th>股票数</th><th>平均涨跌幅</th><th>上涨数</th><th>涨超5数</th><th>跌超5数</th><th>成交额</th></tr></thead><tbody><tr><td class="">高速铜缆</td><td class="">1</td><td class="red">6.03%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">3.96亿</td></tr><tr><td class="">AI服务器</td><td class="">2</td><td class="red">9.56%</td><td class="">2</td><td class="">2</td><td class="">0</td><td class="">124.11亿</td></tr><tr><td class="">PCB/消费电子</td><td class="">1</td><td class="red">10.0%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">121.78亿</td></tr><tr><td class="">封测</td><td class="">3</td><td class="red">10.01%</td><td class="">3</td><td class="">3</td><td class="">0</td><td class="">91.11亿</td></tr><tr><td class="">覆铜板</td><td class="">1</td><td class="red">10.01%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">86.10亿</td></tr><tr><td class="">PCB</td><td class="">5</td><td class="red">11.02%</td><td class="">5</td><td class="">5</td><td class="">0</td><td class="">284.88亿</td></tr><tr><td class="">芯片设计</td><td class="">6</td><td class="red">11.07%</td><td class="">6</td><td class="">5</td><td class="">0</td><td class="">124.90亿</td></tr><tr><td class="">软件/智能驾驶</td><td class="">1</td><td class="red">11.67%</td><td class="">1</td><td class="">1</td><td class="">0</td><td class="">6.97亿</td></tr><tr><td class="">存储芯片</td><td class="">3</td><td class="red">11.89%</td><td class="">3</td><td class="">3</td><td class="">0</td><td class="">165.65亿</td></tr><tr><td class="">功率半导体</td><td class="">3</td><td class="red">12.01%</td><td class="">3</td><td class="">3</td><td class="">0</td><td class="">24.62亿</td></tr></tbody></table></div>
+    <div class="section-title">十、自选股观察表</div>
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>级别</th>
+                <th>代码</th>
+                <th>名称</th>
+                <th>所属板块</th>
+                <th>最新价</th>
+                <th>涨跌幅</th>
+                <th>较上次涨跌幅变化</th>
+                <th>尾盘变化</th>
+                <th>涨跌额</th>
+                <th>今开</th>
+                <th>最高</th>
+                <th>最低</th>
+                <th>昨收</th>
+                <th>距离高点%</th>
+                <th>量比</th>
+                <th>换手率</th>
+                <th>成交额</th>
+                <th>行情时间</th>
+                <th>操作提示</th>
+                <th>风险评分</th>
+                <th>尾盘提示</th>
+            </tr>
+        </thead>
+        <tbody>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>002371</td>
+                <td>北方华创</td>
+                <td>半导体设备</td>
+                <td>527.38</td>
+                <td class="red">10.0%</td>
+                <td class="red">13.14%</td>
+                <td>转强</td>
+                <td>47.94</td>
+                <td>486.33</td>
+                <td>527.38</td>
+                <td>482.01</td>
+                <td>479.44</td>
+                <td>0.0%</td>
+                <td>1.00</td>
+                <td>1.64</td>
+                <td>60.56亿</td>
+                <td>20261127161430</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>2</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688012</td>
+                <td>中微公司</td>
+                <td>半导体设备</td>
+                <td>269.1</td>
+                <td class="red">20.0%</td>
+                <td class="red">26.52%</td>
+                <td>转强</td>
+                <td>44.85</td>
+                <td>226.24</td>
+                <td>269.1</td>
+                <td>224.8</td>
+                <td>224.25</td>
+                <td>0.0%</td>
+                <td>1.47</td>
+                <td>3.75</td>
+                <td>87.14亿</td>
+                <td>20261127161442</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688072</td>
+                <td>拓荆科技</td>
+                <td>半导体设备</td>
+                <td>547.37</td>
+                <td class="red">20.0%</td>
+                <td class="red">22.25%</td>
+                <td>转强</td>
+                <td>91.23</td>
+                <td>457.7</td>
+                <td>547.37</td>
+                <td>450.83</td>
+                <td>456.14</td>
+                <td>0.0%</td>
+                <td>1.39</td>
+                <td>3.09</td>
+                <td>44.05亿</td>
+                <td>20261127161439</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688120</td>
+                <td>华海清科</td>
+                <td>半导体设备</td>
+                <td>217.85</td>
+                <td class="red">20.0%</td>
+                <td class="red">25.94%</td>
+                <td>转强</td>
+                <td>36.31</td>
+                <td>184.27</td>
+                <td>217.85</td>
+                <td>181.56</td>
+                <td>181.54</td>
+                <td>0.0%</td>
+                <td>1.22</td>
+                <td>2.68</td>
+                <td>26.53亿</td>
+                <td>20261127161451</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688037</td>
+                <td>芯源微</td>
+                <td>半导体设备</td>
+                <td>275.4</td>
+                <td class="red">20.0%</td>
+                <td class="red">19.56%</td>
+                <td>转强</td>
+                <td>45.9</td>
+                <td>231.0</td>
+                <td>275.4</td>
+                <td>229.5</td>
+                <td>229.5</td>
+                <td>0.0%</td>
+                <td>1.65</td>
+                <td>4.59</td>
+                <td>23.93亿</td>
+                <td>20261127161452</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>002916</td>
+                <td>深南电路</td>
+                <td>PCB</td>
+                <td>224.92</td>
+                <td class="red">10.0%</td>
+                <td class="red">6.19%</td>
+                <td>转强</td>
+                <td>20.45</td>
+                <td>205.75</td>
+                <td>224.92</td>
+                <td>204.47</td>
+                <td>204.47</td>
+                <td>0.0%</td>
+                <td>0.74</td>
+                <td>2.09</td>
+                <td>29.89亿</td>
+                <td>20261127161451</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>300476</td>
+                <td>胜宏科技</td>
+                <td>PCB</td>
+                <td>142.36</td>
+                <td class="red">15.08%</td>
+                <td class="red">13.26%</td>
+                <td>转强</td>
+                <td>18.66</td>
+                <td>123.7</td>
+                <td>142.66</td>
+                <td>119.31</td>
+                <td>123.7</td>
+                <td>-0.21%</td>
+                <td>1.63</td>
+                <td>8.83</td>
+                <td>100.22亿</td>
+                <td>20261127161433</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>2</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>002463</td>
+                <td>沪电股份</td>
+                <td>PCB</td>
+                <td>89.2</td>
+                <td class="red">10.0%</td>
+                <td class="red">7.99%</td>
+                <td>转强</td>
+                <td>8.11</td>
+                <td>81.1</td>
+                <td>89.2</td>
+                <td>80.15</td>
+                <td>81.09</td>
+                <td>0.0%</td>
+                <td>1.28</td>
+                <td>5.47</td>
+                <td>90.88亿</td>
+                <td>20261127161403</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>600584</td>
+                <td>长电科技</td>
+                <td>封测</td>
+                <td>52.58</td>
+                <td class="red">10.0%</td>
+                <td class="red">8.71%</td>
+                <td>转强</td>
+                <td>4.78</td>
+                <td>48.4</td>
+                <td>52.58</td>
+                <td>48.0</td>
+                <td>47.8</td>
+                <td>0.0%</td>
+                <td>1.23</td>
+                <td>5.14</td>
+                <td>46.57亿</td>
+                <td>20261127161500</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>688041</td>
+                <td>海光信息</td>
+                <td>国产算力</td>
+                <td>186.37</td>
+                <td class="red">18.05%</td>
+                <td class="red">18.09%</td>
+                <td>转强</td>
+                <td>28.49</td>
+                <td>159.0</td>
+                <td>186.98</td>
+                <td>156.81</td>
+                <td>157.88</td>
+                <td>-0.33%</td>
+                <td>1.48</td>
+                <td>1.85</td>
+                <td>73.77亿</td>
+                <td>20261127161453</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>603019</td>
+                <td>中科曙光</td>
+                <td>国产算力</td>
+                <td>76.05</td>
+                <td class="red">9.99%</td>
+                <td class="red">12.57%</td>
+                <td>转强</td>
+                <td>6.91</td>
+                <td>69.5</td>
+                <td>76.05</td>
+                <td>69.21</td>
+                <td>69.14</td>
+                <td>0.0%</td>
+                <td>1.61</td>
+                <td>2.80</td>
+                <td>30.05亿</td>
+                <td>20261127161445</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>001309</td>
+                <td>德明利</td>
+                <td>存储芯片</td>
+                <td>173.43</td>
+                <td class="red">10.0%</td>
+                <td class="red">10.22%</td>
+                <td>转强</td>
+                <td>15.77</td>
+                <td>158.02</td>
+                <td>173.43</td>
+                <td>157.48</td>
+                <td>157.66</td>
+                <td>0.0%</td>
+                <td>1.37</td>
+                <td>9.60</td>
+                <td>37.16亿</td>
+                <td>20261127161421</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>2</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>600183</td>
+                <td>生益科技</td>
+                <td>覆铜板</td>
+                <td>68.04</td>
+                <td class="red">10.01%</td>
+                <td class="red">4.16%</td>
+                <td>转强</td>
+                <td>6.19</td>
+                <td>61.65</td>
+                <td>68.04</td>
+                <td>60.74</td>
+                <td>61.85</td>
+                <td>0.0%</td>
+                <td>1.41</td>
+                <td>5.52</td>
+                <td>86.10亿</td>
+                <td>20261127161455</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688981</td>
+                <td>中芯国际</td>
+                <td>晶圆制造</td>
+                <td>134.42</td>
+                <td class="red">15.38%</td>
+                <td class="red">19.89%</td>
+                <td>转强</td>
+                <td>17.92</td>
+                <td>117.5</td>
+                <td>135.0</td>
+                <td>116.1</td>
+                <td>116.5</td>
+                <td>-0.43%</td>
+                <td>1.57</td>
+                <td>4.84</td>
+                <td>123.07亿</td>
+                <td>20261127161500</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688008</td>
+                <td>澜起科技</td>
+                <td>存储/接口芯片</td>
+                <td>144.5</td>
+                <td class="red">15.69%</td>
+                <td class="red">16.88%</td>
+                <td>转强</td>
+                <td>19.6</td>
+                <td>126.1</td>
+                <td>145.43</td>
+                <td>125.0</td>
+                <td>124.9</td>
+                <td>-0.64%</td>
+                <td>1.64</td>
+                <td>4.51</td>
+                <td>70.13亿</td>
+                <td>20261127161454</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>603986</td>
+                <td>兆易创新</td>
+                <td>存储芯片</td>
+                <td>217.34</td>
+                <td class="red">10.0%</td>
+                <td class="red">10.35%</td>
+                <td>转强</td>
+                <td>19.76</td>
+                <td>199.0</td>
+                <td>217.34</td>
+                <td>197.25</td>
+                <td>197.58</td>
+                <td>0.0%</td>
+                <td>1.43</td>
+                <td>6.45</td>
+                <td>90.33亿</td>
+                <td>20261127161451</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>300661</td>
+                <td>圣邦股份</td>
+                <td>模拟芯片</td>
+                <td>82.0</td>
+                <td class="red">13.38%</td>
+                <td class="red">12.94%</td>
+                <td>转强</td>
+                <td>9.68</td>
+                <td>72.8</td>
+                <td>82.8</td>
+                <td>72.18</td>
+                <td>72.32</td>
+                <td>-0.97%</td>
+                <td>1.67</td>
+                <td>2.88</td>
+                <td>13.51亿</td>
+                <td>20261127161457</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688052</td>
+                <td>纳芯微</td>
+                <td>模拟芯片</td>
+                <td>155.49</td>
+                <td class="red">11.65%</td>
+                <td class="red">12.33%</td>
+                <td>转强</td>
+                <td>16.23</td>
+                <td>140.3</td>
+                <td>155.5</td>
+                <td>138.39</td>
+                <td>139.26</td>
+                <td>-0.01%</td>
+                <td>1.12</td>
+                <td>2.26</td>
+                <td>4.80亿</td>
+                <td>20261127161450</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>603893</td>
+                <td>瑞芯微</td>
+                <td>芯片设计</td>
+                <td>211.72</td>
+                <td class="red">10.0%</td>
+                <td class="red">10.63%</td>
+                <td>转强</td>
+                <td>19.25</td>
+                <td>194.02</td>
+                <td>211.72</td>
+                <td>193.0</td>
+                <td>192.47</td>
+                <td>0.0%</td>
+                <td>1.22</td>
+                <td>5.16</td>
+                <td>44.39亿</td>
+                <td>20261127161448</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688300</td>
+                <td>联瑞新材</td>
+                <td>半导体材料</td>
+                <td>83.19</td>
+                <td class="red">18.1%</td>
+                <td class="red">16.35%</td>
+                <td>转强</td>
+                <td>12.75</td>
+                <td>71.04</td>
+                <td>83.39</td>
+                <td>70.42</td>
+                <td>70.44</td>
+                <td>-0.24%</td>
+                <td>1.57</td>
+                <td>4.63</td>
+                <td>11.28亿</td>
+                <td>20261127161447</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>300308</td>
+                <td>中际旭创</td>
+                <td>光模块/CPO</td>
+                <td>516.15</td>
+                <td class="red">19.98%</td>
+                <td class="red">14.8%</td>
+                <td>转强</td>
+                <td>85.97</td>
+                <td>434.95</td>
+                <td>516.15</td>
+                <td>430.69</td>
+                <td>430.18</td>
+                <td>0.0%</td>
+                <td>1.44</td>
+                <td>6.38</td>
+                <td>333.97亿</td>
+                <td>20261127161445</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>300502</td>
+                <td>新易盛</td>
+                <td>光模块/CPO</td>
+                <td>226.84</td>
+                <td class="red">20.0%</td>
+                <td class="red">15.74%</td>
+                <td>转强</td>
+                <td>37.81</td>
+                <td>189.77</td>
+                <td>226.84</td>
+                <td>188.2</td>
+                <td>189.03</td>
+                <td>0.0%</td>
+                <td>1.27</td>
+                <td>10.39</td>
+                <td>269.24亿</td>
+                <td>20261127161451</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>2</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>300394</td>
+                <td>天孚通信</td>
+                <td>光模块/CPO</td>
+                <td>160.52</td>
+                <td class="red">19.8%</td>
+                <td class="red">17.42%</td>
+                <td>转强</td>
+                <td>26.53</td>
+                <td>135.39</td>
+                <td>160.71</td>
+                <td>132.99</td>
+                <td>133.99</td>
+                <td>-0.12%</td>
+                <td>1.31</td>
+                <td>8.75</td>
+                <td>137.26亿</td>
+                <td>20261127161445</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>2</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>002281</td>
+                <td>光迅科技</td>
+                <td>光模块/CPO</td>
+                <td>87.05</td>
+                <td class="red">9.99%</td>
+                <td class="red">8.7%</td>
+                <td>转强</td>
+                <td>7.91</td>
+                <td>79.54</td>
+                <td>87.05</td>
+                <td>79.54</td>
+                <td>79.14</td>
+                <td>0.0%</td>
+                <td>1.19</td>
+                <td>4.72</td>
+                <td>31.08亿</td>
+                <td>20261127161500</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>601138</td>
+                <td>工业富联</td>
+                <td>AI服务器</td>
+                <td>44.74</td>
+                <td class="red">9.12%</td>
+                <td class="red">5.61%</td>
+                <td>转强</td>
+                <td>3.74</td>
+                <td>41.2</td>
+                <td>44.82</td>
+                <td>40.66</td>
+                <td>41.0</td>
+                <td>-0.18%</td>
+                <td>1.40</td>
+                <td>1.07</td>
+                <td>91.17亿</td>
+                <td>20261127161442</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>000977</td>
+                <td>浪潮信息</td>
+                <td>AI服务器</td>
+                <td>46.81</td>
+                <td class="red">10.01%</td>
+                <td class="red">8.94%</td>
+                <td>转强</td>
+                <td>4.26</td>
+                <td>42.7</td>
+                <td>46.81</td>
+                <td>42.7</td>
+                <td>42.55</td>
+                <td>0.0%</td>
+                <td>1.40</td>
+                <td>4.97</td>
+                <td>32.94亿</td>
+                <td>20261127161500</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>688047</td>
+                <td>龙芯中科</td>
+                <td>国产CPU</td>
+                <td>96.9</td>
+                <td class="red">13.19%</td>
+                <td class="red">18.79%</td>
+                <td>转强</td>
+                <td>11.29</td>
+                <td>86.57</td>
+                <td>97.29</td>
+                <td>85.0</td>
+                <td>85.61</td>
+                <td>-0.4%</td>
+                <td>1.48</td>
+                <td>1.64</td>
+                <td>6.04亿</td>
+                <td>20261127161459</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688256</td>
+                <td>寒武纪</td>
+                <td>国产AI芯片</td>
+                <td>1118.99</td>
+                <td class="red">18.68%</td>
+                <td class="red">14.83%</td>
+                <td>转强</td>
+                <td>176.14</td>
+                <td>949.95</td>
+                <td>1126.88</td>
+                <td>942.0</td>
+                <td>942.85</td>
+                <td>-0.7%</td>
+                <td>1.58</td>
+                <td>2.85</td>
+                <td>185.00亿</td>
+                <td>20261127161435</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>300496</td>
+                <td>中科创达</td>
+                <td>软件/智能驾驶</td>
+                <td>52.73</td>
+                <td class="red">11.67%</td>
+                <td class="red">17.25%</td>
+                <td>转强</td>
+                <td>5.51</td>
+                <td>47.38</td>
+                <td>52.78</td>
+                <td>47.25</td>
+                <td>47.22</td>
+                <td>-0.09%</td>
+                <td>1.57</td>
+                <td>3.75</td>
+                <td>6.97亿</td>
+                <td>20261127161445</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>002049</td>
+                <td>紫光国微</td>
+                <td>芯片设计</td>
+                <td>49.3</td>
+                <td class="red">8.21%</td>
+                <td class="red">9.6%</td>
+                <td>转强</td>
+                <td>3.74</td>
+                <td>45.64</td>
+                <td>49.37</td>
+                <td>45.6</td>
+                <td>45.56</td>
+                <td>-0.14%</td>
+                <td>1.68</td>
+                <td>1.90</td>
+                <td>7.67亿</td>
+                <td>20261127161445</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>002384</td>
+                <td>东山精密</td>
+                <td>PCB/消费电子</td>
+                <td>79.77</td>
+                <td class="red">10.0%</td>
+                <td class="red">6.1%</td>
+                <td>转强</td>
+                <td>7.25</td>
+                <td>72.55</td>
+                <td>79.77</td>
+                <td>72.0</td>
+                <td>72.52</td>
+                <td>0.0%</td>
+                <td>1.14</td>
+                <td>11.53</td>
+                <td>121.78亿</td>
+                <td>20261127161445</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>2</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>603228</td>
+                <td>景旺电子</td>
+                <td>PCB</td>
+                <td>64.53</td>
+                <td class="red">10.01%</td>
+                <td class="red">8.68%</td>
+                <td>转强</td>
+                <td>5.87</td>
+                <td>58.66</td>
+                <td>64.53</td>
+                <td>57.72</td>
+                <td>58.66</td>
+                <td>0.0%</td>
+                <td>1.04</td>
+                <td>5.62</td>
+                <td>34.12亿</td>
+                <td>20261127161453</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>002436</td>
+                <td>兴森科技</td>
+                <td>PCB</td>
+                <td>26.41</td>
+                <td class="red">10.0%</td>
+                <td class="red">6.06%</td>
+                <td>转强</td>
+                <td>2.4</td>
+                <td>24.14</td>
+                <td>26.41</td>
+                <td>24.12</td>
+                <td>24.01</td>
+                <td>0.0%</td>
+                <td>1.14</td>
+                <td>7.64</td>
+                <td>29.76亿</td>
+                <td>20261127161445</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688126</td>
+                <td>沪硅产业</td>
+                <td>半导体材料</td>
+                <td>22.04</td>
+                <td class="red">17.11%</td>
+                <td class="red">22.73%</td>
+                <td>转强</td>
+                <td>3.22</td>
+                <td>18.64</td>
+                <td>22.1</td>
+                <td>18.28</td>
+                <td>18.82</td>
+                <td>-0.27%</td>
+                <td>1.67</td>
+                <td>3.32</td>
+                <td>19.11亿</td>
+                <td>20261127161452</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688141</td>
+                <td>杰华特</td>
+                <td>电源芯片</td>
+                <td>66.52</td>
+                <td class="red">20.01%</td>
+                <td class="red">15.27%</td>
+                <td>转强</td>
+                <td>11.09</td>
+                <td>56.0</td>
+                <td>66.52</td>
+                <td>56.0</td>
+                <td>55.43</td>
+                <td>0.0%</td>
+                <td>1.18</td>
+                <td>5.25</td>
+                <td>14.88亿</td>
+                <td>20261127161450</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>688082</td>
+                <td>盛美上海</td>
+                <td>半导体设备</td>
+                <td>244.8</td>
+                <td class="red">20.0%</td>
+                <td class="red">22.41%</td>
+                <td>转强</td>
+                <td>40.8</td>
+                <td>204.0</td>
+                <td>244.8</td>
+                <td>200.0</td>
+                <td>204.0</td>
+                <td>0.0%</td>
+                <td>1.46</td>
+                <td>1.41</td>
+                <td>15.11亿</td>
+                <td>20261127161437</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>688627</td>
+                <td>精智达</td>
+                <td>检测设备/显示</td>
+                <td>208.16</td>
+                <td class="red">20.0%</td>
+                <td class="red">18.56%</td>
+                <td>转强</td>
+                <td>34.69</td>
+                <td>176.93</td>
+                <td>208.16</td>
+                <td>175.2</td>
+                <td>173.47</td>
+                <td>0.0%</td>
+                <td>1.04</td>
+                <td>5.82</td>
+                <td>10.58亿</td>
+                <td>20261127161444</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>688668</td>
+                <td>鼎通科技</td>
+                <td>光通信</td>
+                <td>95.58</td>
+                <td class="red">20.0%</td>
+                <td class="red">19.84%</td>
+                <td>转强</td>
+                <td>15.93</td>
+                <td>80.85</td>
+                <td>95.58</td>
+                <td>79.93</td>
+                <td>79.65</td>
+                <td>0.0%</td>
+                <td>1.52</td>
+                <td>7.91</td>
+                <td>9.76亿</td>
+                <td>20261127161459</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>002130</td>
+                <td>沃尔核材</td>
+                <td>高速铜缆</td>
+                <td>13.36</td>
+                <td class="red">6.03%</td>
+                <td class="red">6.35%</td>
+                <td>转强</td>
+                <td>0.76</td>
+                <td>12.59</td>
+                <td>13.38</td>
+                <td>12.48</td>
+                <td>12.6</td>
+                <td>-0.15%</td>
+                <td>1.76</td>
+                <td>2.63</td>
+                <td>3.96亿</td>
+                <td>20261127161436</td>
+                <td>强势明显，只适合小仓观察</td>
+                <td>6</td>
+                <td>尾盘可小仓观察</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>300604</td>
+                <td>长川科技</td>
+                <td>半导体设备</td>
+                <td>200.62</td>
+                <td class="red">20.0%</td>
+                <td class="red">19.04%</td>
+                <td>转强</td>
+                <td>33.44</td>
+                <td>169.51</td>
+                <td>200.62</td>
+                <td>169.51</td>
+                <td>167.18</td>
+                <td>0.0%</td>
+                <td>1.42</td>
+                <td>6.51</td>
+                <td>60.18亿</td>
+                <td>20261127161445</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688200</td>
+                <td>华峰测控</td>
+                <td>半导体检测</td>
+                <td>223.55</td>
+                <td class="red">20.0%</td>
+                <td class="red">17.88%</td>
+                <td>转强</td>
+                <td>37.26</td>
+                <td>190.01</td>
+                <td>223.55</td>
+                <td>186.85</td>
+                <td>186.29</td>
+                <td>0.0%</td>
+                <td>1.28</td>
+                <td>3.90</td>
+                <td>16.17亿</td>
+                <td>20261127161448</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>688361</td>
+                <td>中科飞测</td>
+                <td>半导体检测</td>
+                <td>260.84</td>
+                <td class="red">20.0%</td>
+                <td class="red">20.38%</td>
+                <td>转强</td>
+                <td>43.47</td>
+                <td>219.55</td>
+                <td>260.84</td>
+                <td>219.0</td>
+                <td>217.37</td>
+                <td>0.0%</td>
+                <td>0.89</td>
+                <td>2.78</td>
+                <td>23.70亿</td>
+                <td>20261127161440</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>300666</td>
+                <td>江丰电子</td>
+                <td>半导体材料</td>
+                <td>209.03</td>
+                <td class="red">20.0%</td>
+                <td class="red">19.92%</td>
+                <td>转强</td>
+                <td>34.84</td>
+                <td>175.84</td>
+                <td>209.03</td>
+                <td>175.66</td>
+                <td>174.19</td>
+                <td>0.0%</td>
+                <td>1.18</td>
+                <td>6.76</td>
+                <td>28.81亿</td>
+                <td>20261127161445</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>688396</td>
+                <td>华润微</td>
+                <td>功率半导体</td>
+                <td>49.93</td>
+                <td class="red">12.71%</td>
+                <td class="red">13.27%</td>
+                <td>转强</td>
+                <td>5.63</td>
+                <td>44.74</td>
+                <td>49.98</td>
+                <td>44.05</td>
+                <td>44.3</td>
+                <td>-0.1%</td>
+                <td>1.50</td>
+                <td>1.68</td>
+                <td>10.52亿</td>
+                <td>20261127161451</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>603290</td>
+                <td>斯达半导</td>
+                <td>功率半导体</td>
+                <td>63.42</td>
+                <td class="red">9.97%</td>
+                <td class="red">11.57%</td>
+                <td>转强</td>
+                <td>5.75</td>
+                <td>58.0</td>
+                <td>63.43</td>
+                <td>57.95</td>
+                <td>57.67</td>
+                <td>-0.02%</td>
+                <td>1.53</td>
+                <td>2.30</td>
+                <td>3.37亿</td>
+                <td>20261127161456</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>300373</td>
+                <td>扬杰科技</td>
+                <td>功率半导体</td>
+                <td>68.2</td>
+                <td class="red">13.36%</td>
+                <td class="red">16.11%</td>
+                <td>转强</td>
+                <td>8.04</td>
+                <td>60.33</td>
+                <td>68.77</td>
+                <td>59.62</td>
+                <td>60.16</td>
+                <td>-0.83%</td>
+                <td>1.89</td>
+                <td>3.07</td>
+                <td>10.74亿</td>
+                <td>20261127161415</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688099</td>
+                <td>晶晨股份</td>
+                <td>芯片设计</td>
+                <td>89.25</td>
+                <td class="red">12.69%</td>
+                <td class="red">17.67%</td>
+                <td>转强</td>
+                <td>10.05</td>
+                <td>79.75</td>
+                <td>89.3</td>
+                <td>78.53</td>
+                <td>79.2</td>
+                <td>-0.06%</td>
+                <td>1.47</td>
+                <td>4.53</td>
+                <td>16.12亿</td>
+                <td>20261127161452</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>688525</td>
+                <td>佰维存储</td>
+                <td>存储芯片</td>
+                <td>130.96</td>
+                <td class="red">15.67%</td>
+                <td class="red">17.46%</td>
+                <td>转强</td>
+                <td>17.74</td>
+                <td>114.0</td>
+                <td>130.99</td>
+                <td>113.13</td>
+                <td>113.22</td>
+                <td>-0.02%</td>
+                <td>1.79</td>
+                <td>6.52</td>
+                <td>38.16亿</td>
+                <td>20261127161445</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>688347</td>
+                <td>华虹公司</td>
+                <td>晶圆制造</td>
+                <td>212.4</td>
+                <td class="red">20.0%</td>
+                <td class="red">21.83%</td>
+                <td>转强</td>
+                <td>35.4</td>
+                <td>179.0</td>
+                <td>212.4</td>
+                <td>177.0</td>
+                <td>177.0</td>
+                <td>0.0%</td>
+                <td>1.16</td>
+                <td>9.90</td>
+                <td>79.07亿</td>
+                <td>20261127161500</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>2</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>002156</td>
+                <td>通富微电</td>
+                <td>封测</td>
+                <td>40.13</td>
+                <td class="red">10.01%</td>
+                <td class="red">8.7%</td>
+                <td>转强</td>
+                <td>3.65</td>
+                <td>36.73</td>
+                <td>40.13</td>
+                <td>36.62</td>
+                <td>36.48</td>
+                <td>0.0%</td>
+                <td>1.15</td>
+                <td>6.24</td>
+                <td>36.57亿</td>
+                <td>20261127161430</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>002409</td>
+                <td>雅克科技</td>
+                <td>半导体材料</td>
+                <td>80.14</td>
+                <td class="red">10.01%</td>
+                <td class="red">8.38%</td>
+                <td>转强</td>
+                <td>7.29</td>
+                <td>73.5</td>
+                <td>80.14</td>
+                <td>73.21</td>
+                <td>72.85</td>
+                <td>0.0%</td>
+                <td>0.92</td>
+                <td>5.25</td>
+                <td>12.83亿</td>
+                <td>20261127161439</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>603005</td>
+                <td>晶方科技</td>
+                <td>封测</td>
+                <td>20.76</td>
+                <td class="red">10.02%</td>
+                <td class="red">10.44%</td>
+                <td>转强</td>
+                <td>1.89</td>
+                <td>18.99</td>
+                <td>20.76</td>
+                <td>18.98</td>
+                <td>18.87</td>
+                <td>0.0%</td>
+                <td>1.50</td>
+                <td>6.09</td>
+                <td>7.97亿</td>
+                <td>20261127161451</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>300567</td>
+                <td>精测电子</td>
+                <td>半导体检测</td>
+                <td>100.44</td>
+                <td class="red">20.0%</td>
+                <td class="red">20.42%</td>
+                <td>转强</td>
+                <td>16.74</td>
+                <td>85.0</td>
+                <td>100.44</td>
+                <td>85.0</td>
+                <td>83.7</td>
+                <td>0.0%</td>
+                <td>1.12</td>
+                <td>5.18</td>
+                <td>10.99亿</td>
+                <td>20261127161445</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688249</td>
+                <td>晶合集成</td>
+                <td>晶圆制造</td>
+                <td>30.35</td>
+                <td class="red">16.87%</td>
+                <td class="red">19.35%</td>
+                <td>转强</td>
+                <td>4.38</td>
+                <td>26.2</td>
+                <td>30.54</td>
+                <td>26.13</td>
+                <td>25.97</td>
+                <td>-0.62%</td>
+                <td>1.47</td>
+                <td>2.79</td>
+                <td>16.14亿</td>
+                <td>20261127161500</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>688498</td>
+                <td>源杰科技</td>
+                <td>光模块/CPO</td>
+                <td>704.4</td>
+                <td class="red">20.0%</td>
+                <td class="red">17.2%</td>
+                <td>转强</td>
+                <td>117.4</td>
+                <td>591.0</td>
+                <td>704.4</td>
+                <td>591.0</td>
+                <td>587.0</td>
+                <td>0.0%</td>
+                <td>1.35</td>
+                <td>8.70</td>
+                <td>69.81亿</td>
+                <td>20261127161455</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>2</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>688213</td>
+                <td>思特威</td>
+                <td>芯片设计</td>
+                <td>90.21</td>
+                <td class="red">3.1%</td>
+                <td class="red">11.76%</td>
+                <td>转强</td>
+                <td>2.71</td>
+                <td>87.0</td>
+                <td>92.25</td>
+                <td>76.78</td>
+                <td>87.5</td>
+                <td>-2.21%</td>
+                <td>3.77</td>
+                <td>8.28</td>
+                <td>22.46亿</td>
+                <td>20261127161454</td>
+                <td>涨幅较好，继续观察</td>
+                <td>2</td>
+                <td>只观察，等确认</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688220</td>
+                <td>翱捷科技</td>
+                <td>芯片设计</td>
+                <td>75.0</td>
+                <td class="red">15.15%</td>
+                <td class="red">17.62%</td>
+                <td>转强</td>
+                <td>9.87</td>
+                <td>65.52</td>
+                <td>75.22</td>
+                <td>65.1</td>
+                <td>65.13</td>
+                <td>-0.29%</td>
+                <td>1.47</td>
+                <td>3.49</td>
+                <td>10.50亿</td>
+                <td>20261127161453</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-b">B</span></td>
+                <td>688018</td>
+                <td>乐鑫科技</td>
+                <td>芯片设计</td>
+                <td>164.67</td>
+                <td class="red">17.29%</td>
+                <td class="red">20.45%</td>
+                <td>转强</td>
+                <td>24.27</td>
+                <td>141.99</td>
+                <td>166.0</td>
+                <td>139.9</td>
+                <td>140.4</td>
+                <td>-0.8%</td>
+                <td>1.35</td>
+                <td>6.65</td>
+                <td>23.76亿</td>
+                <td>20261127161452</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>3</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+            <tr>
+                <td><span class="level-a">A</span></td>
+                <td>688019</td>
+                <td>安集科技</td>
+                <td>半导体材料</td>
+                <td>228.85</td>
+                <td class="red">20.0%</td>
+                <td class="red">22.63%</td>
+                <td>转强</td>
+                <td>38.14</td>
+                <td>192.96</td>
+                <td>228.85</td>
+                <td>191.8</td>
+                <td>190.71</td>
+                <td>0.0%</td>
+                <td>1.40</td>
+                <td>4.61</td>
+                <td>22.43亿</td>
+                <td>20261127161455</td>
+                <td>涨幅过大，谨慎追高</td>
+                <td>4</td>
+                <td>涨幅过大，不追</td>
+            </tr>
+
+        </tbody>
+    </table>
+    </div>
+
+    <div class="footer">
+        说明：本页面为市场温度和尾盘观察辅助工具，不构成投资建议。代表池不是全A真实统计，只是稳定可获取的全局代理。
+        若未来真实全A接口稳定，可再单独增加“真实全A情绪”模块。
+    </div>
+</body>
+</html>
